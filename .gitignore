@@ -1,0 +1,11 @@
+# ignore .xml
+*.xml
+# Generated files
+bin/
+gen/
+out/
+# Gradle files
+.gradle/
+build/
+.idea/
+*.xml
