@@ -25,8 +25,9 @@ func (test *iperf_test) create_client_timer() int {
 	now := time.Now()
 	cd := TimerClientData{p: test}
 	test.timer = timer_create(now, client_timer_proc, cd, test.duration * 1000 )	// convert sec to ms
-	test.stats_ticker = ticker_create(now, client_stats_ticker_proc, cd, test.interval * 1000)
-	test.report_ticker = ticker_create(now, client_report_ticker_proc, cd, test.interval * 1000)
+	times := test.duration * 1000 / test.interval
+	test.stats_ticker = ticker_create(now, client_stats_ticker_proc, cd, test.interval, times - 1)
+	test.report_ticker = ticker_create(now, client_report_ticker_proc, cd, test.interval, times - 1)
 	if test.timer.timer == nil || test.stats_ticker.ticker == nil || test.report_ticker.ticker == nil {
 		log.Error("timer create failed.")
 	}
@@ -34,9 +35,10 @@ func (test *iperf_test) create_client_timer() int {
 }
 
 func client_timer_proc(data TimerClientData, now time.Time){
+	log.Debugf("Enter client_timer_proc")
 	test := data.p.(*iperf_test)
 	test.timer.done <- true
-	test.done = true	// will end send in iperf_send
+	test.done = true	// will end send in iperf_send, and then triggered TEST_END
 	test.timer.timer = nil
 }
 
@@ -69,13 +71,13 @@ func (test *iperf_test) create_client_send_ticker() int {
 	for _, sp := range test.streams{
 		sp.can_send = true
 		if test.setting.rate != 0 {
-			if test.setting.pacing_time == 0 {
-				log.Error("pacing_timer and rate should be set at the same time.")
+			if test.setting.pacing_time == 0 || test.setting.burst == true {
+				log.Error("pacing_time & rate & burst should be set at the same time.")
 				return -1
 			}
 			var cd TimerClientData
 			cd.p = sp
-			sp.send_ticker = ticker_create(time.Now(), send_ticker_proc, cd, test.setting.pacing_time)
+			sp.send_ticker = ticker_create(time.Now(), send_ticker_proc, cd, test.setting.pacing_time, 9999999999)
 		}
 	}
 	return 0
@@ -91,10 +93,13 @@ func (test *iperf_test) client_end(){
 	for _, sp := range test.streams{
 		sp.conn.Close()
 	}
-	test.reporter_callback(test)
+	if test.reporter_callback != nil {	// call only after exchange_result finish
+		test.reporter_callback(test)
+	}
 	if test.set_send_state(IPERF_DONE) < 0 {
 		log.Errorf("set_send_state failed")
 	}
+	log.Infof("Client Enter IPerf Done...")
 	if test.ctrl_conn != nil {
 		test.ctrl_conn.Close()
 	}
@@ -105,7 +110,7 @@ func (test *iperf_test) handleClientCtrlMsg() {
 	for {
 		if n, err := test.ctrl_conn.Read(buf); err==nil{
 			state := binary.LittleEndian.Uint32(buf[:])
-			log.Debugf("Ctrl conn receive n = %v state = [%v]", n, state)
+			log.Debugf("Client Ctrl conn receive n = %v state = [%v]", n, state)
 			//state, err := strconv.Atoi(string(buf[:n]))
 
 			//if err != nil {
@@ -113,6 +118,7 @@ func (test *iperf_test) handleClientCtrlMsg() {
 			//	return
 			//}
 			test.state = uint(state)
+			log.Infof("Client Enter %v state...", test.state)
 		} else {
 			if err == io.EOF{
 				log.Info("Server control connection close.")
@@ -153,7 +159,6 @@ func (test *iperf_test) handleClientCtrlMsg() {
 				return
 			}
 		case TEST_RUNNING:
-			test.state = TEST_RUNNING
 			test.ctrl_chan <- test.state
 			break
 		case IPERF_EXCHANGE_RESULT:
@@ -224,6 +229,7 @@ func (test *iperf_test) run_client() int{
 					log.Errorf("Receive more TEST_END signal from send streams.")
 					return -1
 				}
+				log.Infof("Client All Send Stream closed.")
 				// test_end_num == test.stream_num. all the stream send TEST_END signal
 				test.done = true
 				if test.stats_callback != nil {
@@ -233,6 +239,7 @@ func (test *iperf_test) run_client() int{
 					log.Errorf("set_send_state failed. %v", TEST_END)
 					return -1
 				}
+				log.Info("Client Enter Test End State.")
 			} else if state == IPERF_DONE {
 				is_iperf_done = true
 			} else {

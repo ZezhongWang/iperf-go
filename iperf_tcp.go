@@ -4,7 +4,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
+	"time"
 )
 
 type tcp_proto struct{
@@ -39,6 +41,7 @@ func (tcp *tcp_proto) connect(test *iperf_test) (net.Conn, error){
 	if err != nil {
 		return nil, err
 	}
+	conn.SetDeadline(time.Now().Add(time.Duration(test.duration + 5)*time.Second))
 	return conn, nil
 }
 
@@ -61,7 +64,7 @@ func (tcp *tcp_proto) send(sp *iperf_stream) int{
 	}
 	sp.result.bytes_sent += uint64(n)
 	sp.result.bytes_sent_this_interval += uint64(n)
-	log.Debugf("tcp send %v bytes of total %v", n, sp.result.bytes_sent)
+	//log.Debugf("tcp send %v bytes of total %v", n, sp.result.bytes_sent)
 	return n
 }
 
@@ -87,7 +90,7 @@ func (tcp *tcp_proto) recv(sp *iperf_stream) int{
 		sp.result.bytes_received += uint64(n)
 		sp.result.bytes_received_this_interval += uint64(n)
 	}
-	log.Debugf("tcp recv %v bytes of total %v", n, sp.result.bytes_received)
+	//log.Debugf("tcp recv %v bytes of total %v", n, sp.result.bytes_received)
 	return n
 }
 
@@ -103,3 +106,33 @@ func (tcp *tcp_proto) init(test *iperf_test) int{
 	return 0
 }
 
+func (tcp *tcp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_result *iperf_interval_results) int {
+	if test.proto.name() == TCP_NAME && has_tcpInfo(){		// only linux has tcp info
+		rp := sp.result
+		save_tcpInfo(sp, temp_result)
+		total_retrans := temp_result.interval_retrans  // get the temporarily result
+		temp_result.interval_retrans = total_retrans - rp.stream_prev_total_retrans
+		rp.stream_retrans += temp_result.interval_retrans
+		rp.stream_prev_total_retrans = total_retrans
+		if rp.stream_min_rtt == 0 || temp_result.rtt < rp.stream_min_rtt {
+			rp.stream_min_rtt = temp_result.rtt
+		}
+		if rp.stream_max_rtt == 0 || temp_result.rtt > rp.stream_max_rtt {
+			rp.stream_max_rtt = temp_result.rtt
+		}
+		rp.stream_sum_rtt += temp_result.rtt
+		rp.stream_cnt_rtt ++
+	}
+	return 0
+}
+
+func has_tcpInfo() bool{
+	switch runtime.GOOS {
+	case "windows":
+		return false
+	case "linux":
+		return true
+	default:
+		return false
+	}
+}

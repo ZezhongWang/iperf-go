@@ -40,6 +40,18 @@ const(
 	DEFAULT_TCP_BLKSIZE		= 128*1024	// default read/write block size
 	DEFAULT_UDP_BLKSIZE 	= 1460		// default is dynamically set
 	DEFAULT_RUDP_BLKSIZE		= 128*1024	// default read/write block size
+
+	MS_TO_NS 				= 1000000
+	S_TO_NS					= 1000000000
+	MB_TO_B					= 1024*1024
+)
+
+const(
+	TCP_REPORT_HEADER 	= "[ ID]    Interval    Transfer    Bandwidth    RTT\n"
+	TCP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\n"
+	TCP_REPORT_SUM_STREAM 	 = "[SUM] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\n"
+	REPORT_SEPERATOR 	= "- - - - - - - - - - - - - - - - - - - - - -\n"
+	SUMMARY_SEPERATOR 	= "- - - - - - - - - SUMMARY - - - - - - - - -\n"
 )
 type iperf_test struct {
 	is_server	bool
@@ -75,7 +87,7 @@ type iperf_test struct {
 	//omit_timer 		ITimer  // not used yet
 	stats_ticker	ITicker
 	report_ticker 	ITicker
-
+	chStats			chan bool
 
 	/* call back function */
 
@@ -103,6 +115,7 @@ type protocol interface {
 	send(test *iperf_stream) int
 	recv(test *iperf_stream) int
 	init(test *iperf_test) int
+	stats_callback(test *iperf_test, sp *iperf_stream, temp_result *iperf_interval_results) int
 }
 
 type iperf_stream struct{
@@ -123,8 +136,8 @@ type iperf_stream struct{
 type iperf_setting struct{
 	skt_bufsize 	uint
 	blksize			uint
+	burst			bool		// burst & rate & pacing_time should be set at the same time
 	rate			uint		// bit per second
-	burst			uint
 	pacing_time 	uint		// ms
 	bytes 			uint64
 	blocks 			uint64
@@ -154,6 +167,7 @@ type iperf_stream_results struct{
 	bytes_sent_this_interval		uint64
 	bytes_sent_omit					uint64
 	stream_retrans 					uint
+	stream_prev_total_retrans		uint
 	stream_max_rtt					uint
 	stream_min_rtt					uint
 	stream_sum_rtt					uint
@@ -189,6 +203,8 @@ type iperf_interval_results struct{
 	interval_start_time				time.Time
 	interval_end_time				time.Time
 	interval_dur					time.Duration
+	rtt 							uint		// micro sec !
+	interval_retrans				uint		// bytes
 	/* for udp */
 	interval_packet_cnt				uint
 	omitted							uint

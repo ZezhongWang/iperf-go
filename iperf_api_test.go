@@ -38,9 +38,10 @@ func init(){
 	client_test.stream_num = 1		// 1 stream only
 	client_test.no_delay = true
 	client_test.setting.blksize = DEFAULT_TCP_BLKSIZE
-	client_test.setting.rate = 10*1024*1024
-	client_test.setting.pacing_time = 100
-
+	client_test.setting.burst = false
+	client_test.setting.rate = 1024*1024*1024*1024		// b/s
+	client_test.setting.pacing_time = 100		//ms
+	//client_test.setting.burst = true
 	go server_test.run_server()
 	time.Sleep(time.Second)
 }
@@ -56,6 +57,8 @@ func RecvCheckState(t *testing.T, state int) int {
 			t.FailNow()
 			return -1
 		}
+		client_test.state = uint(state)
+		log.Infof("Client Enter %v state", client_test.state)
 	}
 	return 0
 }
@@ -113,7 +116,12 @@ func handleTestStart(t *testing.T) int{
 		assert.Assert(t, sp.test.timer.timer != nil)
 		assert.Assert(t, sp.test.stats_ticker.ticker != nil)
 		assert.Assert(t, sp.test.report_ticker.ticker != nil)
-		assert.Assert(t, sp.send_ticker.ticker != nil)
+		if client_test.setting.burst == true {
+			assert.Assert(t, sp.send_ticker.ticker == nil)
+		} else {
+			assert.Assert(t, sp.send_ticker.ticker != nil)
+		}
+
 		assert.Equal(t, sp.can_send, true)
 	}
 
@@ -138,16 +146,17 @@ func handleTestRunning(t *testing.T) int{
 	}
 	log.Info("All Stream start sending. Wait for finish...")
 	// wait for send/write end (triggered by timer)
-	for {
-		if client_test.done {
-			time.Sleep(time.Millisecond)
-			break
-		}
-	}
+	//for {
+	//	if client_test.done {
+	//		time.Sleep(time.Millisecond)
+	//		break
+	//	}
+	//}
 	for i := 0; i < int(client_test.stream_num); i++ {
 		s := <- client_test.ctrl_chan
 		assert.Equal(t, s, uint(TEST_END))
 	}
+	log.Infof("Client All Send Stream closed.")
 	client_test.done = true
 	if client_test.stats_callback != nil {
 		client_test.stats_callback(client_test)
@@ -201,7 +210,7 @@ func handleExchangeResult(t *testing.T) int{
 /*
 	Test case can only be run one by one
  */
-
+/*
 func TestCtrlConnect(t *testing.T){
 	if rtn := client_test.ConnectServer(); rtn < 0 {
 		t.FailNow()
@@ -333,14 +342,41 @@ func TestExchangeResult(t *testing.T){
 	}
 	RecvCheckState(t, IPERF_DISPLAY_RESULT)
 }
-
+*/
 
 func TestDisplayResult(t *testing.T){
-	TestExchangeResult(t)
+	if rtn := client_test.ConnectServer(); rtn < 0 {
+		t.FailNow()
+	}
+	RecvCheckState(t, IPERF_EXCHANGE_PARAMS)
+	//client_test.stream_num = 2
+	if rtn := client_test.exchange_params(); rtn < 0 {
+		t.FailNow()
+	}
+	RecvCheckState(t, IPERF_CREATE_STREAM)
+	if rtn := CreateStreams(t); rtn < 0{
+		t.FailNow()
+	}
+	RecvCheckState(t, TEST_START)
+	if rtn := handleTestStart(t); rtn < 0{
+		t.FailNow()
+	}
+	RecvCheckState(t, TEST_RUNNING)
+	if handleTestRunning(t) < 0{
+		t.FailNow()
+	}
+	RecvCheckState(t, IPERF_EXCHANGE_RESULT)
+	if handleExchangeResult(t) < 0 {
+		t.FailNow()
+	}
+	RecvCheckState(t, IPERF_DISPLAY_RESULT)
 
 	client_test.client_end()
 
+	time.Sleep(time.Millisecond*10)		// wait for server
 	assert.Equal(t, client_test.state, uint(IPERF_DONE))
 	assert.Equal(t, server_test.state, uint(IPERF_DONE))
 	// check output with your own eyes
+
+	time.Sleep(time.Second*5)		// wait for server
 }

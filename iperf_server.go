@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -45,20 +46,19 @@ func (test *iperf_test) handleServerCtrlMsg() {
 		case TEST_START:
 			break
 		case TEST_END:
+			log.Infof("Server Enter Test End state...")
 			test.done = true
 			if test.stats_callback != nil {
 				test.stats_callback(test)
 			}
 			test.close_all_streams()
-			if test.reporter_callback != nil {
-				test.reporter_callback(test)
-			}
 
 			/* exchange result mode */
 			if test.set_send_state(IPERF_EXCHANGE_RESULT) < 0 {
 				log.Errorf("set_send_state error")
 				return
 			}
+			log.Infof("Server Enter Exchange Result state...")
 			if test.exchange_results() < 0{
 				log.Errorf("exchange result failed")
 				return
@@ -69,14 +69,19 @@ func (test *iperf_test) handleServerCtrlMsg() {
 				log.Errorf("set_send_state error")
 				return
 			}
+			log.Infof("Server Enter Display Result state...")
+			if test.reporter_callback != nil {	// why call these again
+				test.reporter_callback(test)
+			}
 			//if test.display_results() < 0 {
 			//	log.Errorf("display result failed")
 			//	return
 			//}
 			// on_test_finish undo
 		case IPERF_DONE:
-			test.ctrl_chan <- IPERF_DONE
 			test.state = IPERF_DONE
+			log.Debugf("Server reach IPERF_DONE")
+			test.ctrl_chan <- IPERF_DONE
 			return
 		case CLIENT_TERMINATE:		//not used yet
 			old_state := test.state
@@ -99,8 +104,9 @@ func (test *iperf_test) create_server_timer() int {
 	now := time.Now()
 	cd := TimerClientData{p: test}
 	test.timer = timer_create(now, server_timer_proc, cd, (test.duration + 5) * 1000)	// convert sec to ms, add 5 sec to ensure client end first
-	test.stats_ticker = ticker_create(now, server_stats_ticker_proc, cd, test.interval * 1000)
-	test.report_ticker = ticker_create(now, server_report_ticker_proc, cd, test.interval * 1000)
+	times := test.duration * 1000 / test.interval
+	test.stats_ticker = ticker_create(now, server_stats_ticker_proc, cd, test.interval, times - 1)
+	test.report_ticker = ticker_create(now, server_report_ticker_proc, cd, test.interval, times - 1)
 	if test.timer.timer == nil || test.stats_ticker.ticker == nil || test.report_ticker.ticker == nil {
 		log.Error("timer create failed.")
 	}
@@ -108,6 +114,7 @@ func (test *iperf_test) create_server_timer() int {
 }
 
 func server_timer_proc(data TimerClientData, now time.Time){
+	log.Debugf("Enter server_timer_proc")
 	test := data.p.(*iperf_test)
 	if test.done {
 		return
@@ -257,6 +264,8 @@ func (test *iperf_test) run_server() int{
 			}
 		}
 	}
+	fmt.Printf("Server side done.")
+	time.Sleep(time.Duration(time.Second*5))
 	return 0
 }
 

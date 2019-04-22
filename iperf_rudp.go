@@ -36,3 +36,6 @@ func (rudp *rudp_proto) init(test *iperf_test) int{
 	return 0
 }
 
+func (rudp *rudp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_result *iperf_interval_results) int {
+	return 0
+}

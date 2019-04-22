@@ -15,6 +15,7 @@ func new_iperf_test() (test*iperf_test){
 	test.setting = new(iperf_setting)
 	test.reporter_callback = iperf_reporter_callback
 	test.stats_callback = iperf_stats_callback
+	test.chStats = make(chan bool, 1)
 	return
 }
 
@@ -79,10 +80,14 @@ func (test *iperf_test) check_throttle(sp *iperf_stream, now time.Time) {
 	dur := now.Sub(sp.result.start_time)
 	sec := dur.Seconds()
 	bits_per_second := float64(sp.result.bytes_sent * 8) / sec
-	if bits_per_second < float64(sp.test.setting.rate){
+	if bits_per_second < float64(sp.test.setting.rate) && sp.can_send == false{
 		sp.can_send = true
-	} else {
+		log.Debugf("sp.can_send turn TRUE. bits_per_second = %6.2f MB/s Required = %6.2f MB/s",
+			bits_per_second/MB_TO_B/8, float64(sp.test.setting.rate) / MB_TO_B / 8)
+	} else if bits_per_second > float64(sp.test.setting.rate) && sp.can_send == true{
 		sp.can_send = false
+		log.Debugf("sp.can_send turn FALSE. bits_per_second = %6.2f MB/s Required = %6.2f MB/s",
+			bits_per_second/MB_TO_B/8, float64(sp.test.setting.rate) / MB_TO_B / 8)
 	}
 }
 
@@ -276,6 +281,7 @@ func (test *iperf_test)parse_arguments() int {
 	var protocol_flag = flag.String("proto", TCP_NAME, "protocol under test")
 	var interval_flag = flag.Uint("i", 1, "test interval (ms)")
 	var blksize_flag = flag.Uint("l", 1400, "send/read block size")
+	var bandwidth_flag = flag.Uint("b", 0, "bandwidth limit. (Mb/s)")
 	// parse argument
 	flag.Parse()
 
@@ -312,6 +318,13 @@ func (test *iperf_test)parse_arguments() int {
 		test.setting.blksize = *blksize_flag
 	}
 
+	if  flag.CommandLine.Lookup("b") == nil {
+		test.setting.burst = true
+	} else {
+		test.setting.burst = false
+		test.setting.rate = *bandwidth_flag * MB_TO_B * 8
+		test.setting.pacing_time = 5		// 5ms pacing
+	}
 	// pass to iperf_test
 	if *server_flag == true{
 		test.is_server = true
@@ -396,7 +409,7 @@ func (sp *iperf_stream) iperf_recv(test *iperf_test) {
 		}
 		test.bytes_received += uint64(n)
 		test.blocks_received += 1
-		log.Debugf("Stream receive data %v bytes of total %v bytes", n, test.bytes_received)
+		//log.Debugf("Stream receive data %v bytes of total %v bytes", n, test.bytes_received)
 	}
 }
 
@@ -418,9 +431,9 @@ func (sp *iperf_stream) iperf_send(test *iperf_test) {
 			}
 			test.bytes_sent += uint64(n)
 			test.blocks_sent += 1
-			log.Debugf("Stream sent data %v bytes of total %v bytes", n, test.bytes_sent)
+			//log.Debugf("Stream sent data %v bytes of total %v bytes", n, test.bytes_sent)
 		}
-		if test.setting.burst != 0 {
+		if test.setting.burst == false {
 			test.check_throttle(sp, time.Now())
 		}
 		if (test.duration != 0 && test.done) ||
@@ -441,23 +454,124 @@ func (sp *iperf_stream) iperf_send(test *iperf_test) {
 
 // Main report-printing callback.
 func iperf_reporter_callback(test *iperf_test){
+	<- test.chStats		// only call this function after stats
 	if test.state == TEST_RUNNING {
+		log.Debugf("TEST_RUNNING report, role = %v, done = %v", test.is_server, test.done)
 		test.iperf_print_intermediate()
 	} else if test.state == TEST_END || test.state == IPERF_DISPLAY_RESULT {
+		log.Debugf("TEST_END report, role = %v, done = %v", test.is_server, test.done)
 		test.iperf_print_intermediate()
 		test.iperf_print_results()
+	} else {
+		log.Errorf("Unexpected state = %v, role = %v", test.state, test.is_server)
 	}
 }
 
 func (test *iperf_test)iperf_print_intermediate(){
+	var sum_bytes_transfer, sum_rtt uint64
+	var display_start_time, display_end_time float64
+	for i, sp := range test.streams{
+		if i == 0 && len(sp.result.interval_results) == 1{
+			// first time to print result, print header
+			fmt.Printf(TCP_REPORT_HEADER)
+		}
+		interval_seq := len(sp.result.interval_results) - 1
+		rp := sp.result.interval_results[interval_seq]		// get the last one
+		supposed_start_time := time.Duration(uint(interval_seq) * test.interval) * time.Millisecond
+		real_start_time := rp.interval_start_time.Sub(sp.result.start_time)
+		real_end_time := rp.interval_end_time.Sub(sp.result.start_time)
+		if dur_not_same(supposed_start_time, real_start_time) {
+			log.Errorf("Start time differ from expected. supposed = %v, real = %v",
+				supposed_start_time.Nanoseconds() / MS_TO_NS, real_start_time.Nanoseconds() / MS_TO_NS)
+			return
+		}
+		sum_bytes_transfer += rp.bytes_transfered
+		sum_rtt += uint64(rp.rtt)
+		display_start_time = float64(real_start_time.Nanoseconds())/ S_TO_NS
+		display_end_time = float64(real_end_time.Nanoseconds())/ S_TO_NS
+		display_bytes_transfer := float64(rp.bytes_transfered) / MB_TO_B
+		display_bandwidth := display_bytes_transfer / float64(test.interval) * 1000 * 8	// Mb/s
+		// output single stream interval report
+		fmt.Printf(TCP_REPORT_SINGLE_STREAM, i,
+			display_start_time, display_end_time, display_bytes_transfer, display_bandwidth, float64(rp.rtt)/1000)
+	}
+	if test.stream_num > 1 {
+		display_sum_bytes_transfer := float64(sum_bytes_transfer) / MB_TO_B
+		display_bandwidth := display_sum_bytes_transfer /  float64(test.interval) * 1000 * 8
+		fmt.Printf(TCP_REPORT_SUM_STREAM, display_start_time, display_end_time, display_sum_bytes_transfer,
+			display_bandwidth, float64(sum_rtt)/1000/float64(test.stream_num))
+		fmt.Printf(REPORT_SEPERATOR)
+	}
+}
 
+func dur_not_same(d time.Duration, d2 time.Duration) bool {
+	// if deviation exceed 1ms, there might be problems
+	var diff_in_ms int = int(d.Nanoseconds() / MS_TO_NS - d2.Nanoseconds() / MS_TO_NS)
+	if diff_in_ms < -10 || diff_in_ms > 10 {
+		return true
+	}
+	return false
 }
 
 func (test *iperf_test)iperf_print_results(){
-
+	fmt.Printf(SUMMARY_SEPERATOR)
+	fmt.Printf(TCP_REPORT_HEADER)
+	if len(test.streams) <=0 {
+		log.Errorf("No streams available.")
+		return
+	}
+	var sum_bytes_transfer uint64
+	var avg_rtt float64
+	var display_start_time, display_end_time float64
+	for i, sp := range test.streams{
+		display_start_time = float64(0)
+		display_end_time = float64(sp.result.end_time.Sub(sp.result.start_time).Nanoseconds())/ S_TO_NS
+		var display_bytes_transfer float64
+		if test.is_server {
+			display_bytes_transfer = float64(sp.result.bytes_received) / MB_TO_B
+			sum_bytes_transfer += sp.result.bytes_received
+		} else {
+			display_bytes_transfer = float64(sp.result.bytes_sent) / MB_TO_B
+			sum_bytes_transfer += sp.result.bytes_sent
+		}
+		display_rtt := float64(sp.result.stream_sum_rtt) / float64(sp.result.stream_cnt_rtt)
+		avg_rtt += display_rtt
+		display_bandwidth := display_bytes_transfer / float64(test.duration) * 8		// Mb/s
+		// output single stream final report
+		fmt.Printf(TCP_REPORT_SINGLE_STREAM, i, display_start_time,
+			display_end_time, display_bytes_transfer, display_bandwidth, display_rtt)
+	}
+	if test.stream_num > 1 {
+		display_sum_bytes_transfer := float64(sum_bytes_transfer) / MB_TO_B
+		display_bandwidth := display_sum_bytes_transfer /  float64(test.duration) * 1000 * 8
+		fmt.Printf(TCP_REPORT_SUM_STREAM, display_start_time, display_end_time,
+			display_sum_bytes_transfer, display_bandwidth, avg_rtt / float64(test.stream_num))
+	}
 }
 
 // Gather statistics during a test.
 func iperf_stats_callback(test *iperf_test){
-
+	for _, sp := range test.streams{
+		temp_result := iperf_interval_results{}
+		rp := sp.result
+		if len(rp.interval_results) == 0 {
+			// first interval
+			temp_result.interval_start_time = rp.start_time
+		} else {
+			temp_result.interval_start_time = rp.end_time	// rp.end_time contains timestamp of previous interval
+		}
+		rp.end_time = time.Now()
+		temp_result.interval_end_time = rp.end_time
+		temp_result.interval_dur = temp_result.interval_end_time.Sub(temp_result.interval_start_time)
+		test.proto.stats_callback(test, sp, &temp_result)	// write temp_result differ from proto to proto
+		if test.is_server {
+			temp_result.bytes_transfered = rp.bytes_received_this_interval
+		} else {
+			temp_result.bytes_transfered = rp.bytes_sent_this_interval
+		}
+		rp.interval_results = append(rp.interval_results, temp_result)
+		rp.bytes_sent_this_interval = 0
+		rp.bytes_received_this_interval = 0
+	}
+	test.chStats <- true
 }
