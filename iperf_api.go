@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/op/go-logging"
 	"net"
+	"os"
 	"time"
 )
 
@@ -279,17 +281,25 @@ func (test *iperf_test)parse_arguments() int {
 	var client_flag = flag.String("c", "127.0.0.1", "client side")
 	var port_flag = flag.Uint("p", 5201, "connect/listen port")
 	var protocol_flag = flag.String("proto", TCP_NAME, "protocol under test")
-	var interval_flag = flag.Uint("i", 1, "test interval (ms)")
+	var dur_flag = flag.Uint("d", 10, "duration (s)")
+	var interval_flag = flag.Uint("i", 1000, "test interval (ms)")
+	var parallel_flag = flag.Uint("P", 1, "The number of simultaneous connections")
 	var blksize_flag = flag.Uint("l", 1400, "send/read block size")
 	var bandwidth_flag = flag.Uint("b", 0, "bandwidth limit. (Mb/s)")
+	var debug_flag = flag.Bool("debug", false, "debug mode")
+	var no_delay_flag = flag.Bool("D", false, "no delay option")
 	// parse argument
 	flag.Parse()
 
 	if *help_flag {
 		flag.Usage()
+		os.Exit(0)
 	}
 	// check valid
-	if  flag.CommandLine.Lookup("c") == nil {
+	flagset := make(map[string]bool)
+	flag.Visit(func(f *flag.Flag) { flagset[f.Name]=true } )
+
+	if  flagset["c"] == false{
 		if *server_flag == false{
 			return -1
 		}
@@ -306,7 +316,7 @@ func (test *iperf_test)parse_arguments() int {
 	}
 
 	// set block size
-	if  flag.CommandLine.Lookup("l") == nil {
+	if  flagset["l"] == false{
 		if *protocol_flag == TCP_NAME {
 			test.setting.blksize = DEFAULT_TCP_BLKSIZE
 		} else if *protocol_flag == UDP_NAME {
@@ -318,12 +328,18 @@ func (test *iperf_test)parse_arguments() int {
 		test.setting.blksize = *blksize_flag
 	}
 
-	if  flag.CommandLine.Lookup("b") == nil {
+	if  flagset["b"] == false{
 		test.setting.burst = true
 	} else {
 		test.setting.burst = false
 		test.setting.rate = *bandwidth_flag * MB_TO_B * 8
 		test.setting.pacing_time = 5		// 5ms pacing
+	}
+
+	if *debug_flag == true{
+		logging.SetLevel(logging.DEBUG, "iperf")
+	} else {
+		logging.SetLevel(logging.ERROR, "iperf")
 	}
 	// pass to iperf_test
 	if *server_flag == true{
@@ -341,8 +357,12 @@ func (test *iperf_test)parse_arguments() int {
 	test.port = *port_flag
 	test.state = 0
 	test.interval = *interval_flag
-	test.duration = 10000	// 10s
-	test.no_delay = true
+	test.duration = *dur_flag		// 10s
+	test.stream_num = *parallel_flag
+	if test.interval > test.duration * 1000{
+		log.Errorf("interval must smaller than duration")
+	}
+	test.no_delay = *no_delay_flag
 	if test.is_server == false {
 		test.set_protocol(*protocol_flag)
 	}
@@ -382,10 +402,11 @@ func (test *iperf_test) Print() {
 		proto_name = test.proto.name()
 	}
 
-	fmt.Printf("Iperf test detail:\n")
-	fmt.Printf("IsServer:%v\taddr:%v\tport:%v\tstate:%v\tproto:%v\tno_delay:%v\tinterval:%v\tduration:%v\t",
-		test.is_server, test.addr, test.port, test.state, proto_name, test.no_delay, test.interval, test.duration)
-
+	fmt.Printf("Iperf started:\n")
+	if test.is_server == false{
+		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n",
+			 test.addr, test.port, proto_name, test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num)
+	}
 }
 
 
@@ -441,7 +462,7 @@ func (sp *iperf_stream) iperf_send(test *iperf_test) {
 			(test.setting.blocks != 0 && test.blocks_sent >= test.setting.blocks){
 			test.ctrl_chan <- TEST_END
 			// end sending
-			log.Debugf("Client Quit sending")
+			log.Debugf("Stream Quit sending")
 			return
 		}
 	}
@@ -534,7 +555,7 @@ func (test *iperf_test)iperf_print_results(){
 			display_bytes_transfer = float64(sp.result.bytes_sent) / MB_TO_B
 			sum_bytes_transfer += sp.result.bytes_sent
 		}
-		display_rtt := float64(sp.result.stream_sum_rtt) / float64(sp.result.stream_cnt_rtt)
+		display_rtt := float64(sp.result.stream_sum_rtt) / float64(sp.result.stream_cnt_rtt) / 1000
 		avg_rtt += display_rtt
 		display_bandwidth := display_bytes_transfer / float64(test.duration) * 8		// Mb/s
 		// output single stream final report

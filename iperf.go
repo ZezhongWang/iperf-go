@@ -47,11 +47,11 @@ const(
 )
 
 const(
-	TCP_REPORT_HEADER 	= "[ ID]    Interval    Transfer    Bandwidth    RTT\n"
+	TCP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT\n"
 	TCP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\n"
 	TCP_REPORT_SUM_STREAM 	 = "[SUM] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\n"
-	REPORT_SEPERATOR 	= "- - - - - - - - - - - - - - - - - - - - - -\n"
-	SUMMARY_SEPERATOR 	= "- - - - - - - - - SUMMARY - - - - - - - - -\n"
+	REPORT_SEPERATOR 	= "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
+	SUMMARY_SEPERATOR 	= "- - - - - - - - - - - - SUMMARY - - - - - - - - - - - -\n"
 )
 type iperf_test struct {
 	is_server	bool
@@ -170,7 +170,7 @@ type iperf_stream_results struct{
 	stream_prev_total_retrans		uint
 	stream_max_rtt					uint
 	stream_min_rtt					uint
-	stream_sum_rtt					uint
+	stream_sum_rtt					uint		// micro sec
 	stream_cnt_rtt					uint
 	start_time						time.Time
 	end_time						time.Time

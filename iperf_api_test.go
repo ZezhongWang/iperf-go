@@ -18,7 +18,7 @@ var server_test, client_test *iperf_test
 
 func init(){
 
-	logging.SetLevel(logging.INFO, "iperf")
+	logging.SetLevel(logging.ERROR, "iperf")
 	/* log settting */
 
 	server_test = new_iperf_test()

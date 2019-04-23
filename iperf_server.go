@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"time"
 )
@@ -17,7 +18,7 @@ func (test *iperf_test) server_listen() int{
 	if err != nil {
 		return -1
 	}
-	log.Infof("Server listening on %v", test.port)
+	fmt.Printf("Server listening on %v\n", test.port)
 	return 0
 }
 
@@ -33,11 +34,14 @@ func (test *iperf_test) handleServerCtrlMsg() {
 			//}
 			test.state = uint(state)
 		} else {
-			if err == io.EOF{
-				log.Info("Client control connection close.")
+			if serr, ok := err.(*net.OpError); ok{
+				log.Info("Client control connection close. err = %T %v", serr, serr)
 				test.ctrl_conn.Close()
+			} else if err == os.ErrClosed || err == io.ErrClosedPipe || err == io.EOF{
+				log.Info("Client control connection close. err = %T %v", serr, serr)
 			} else {
-				log.Errorf("ctrl_conn read failed. err=%v", err)
+				log.Errorf("ctrl_conn read failed. err=%T, %v", err, err)
+				test.ctrl_conn.Close()
 			}
 			return
 		}
@@ -171,7 +175,7 @@ func (test *iperf_test) run_server() int{
 		return -2
 	}
 	test.ctrl_conn = conn
-	log.Debugf("Accept control connection from %v", conn.RemoteAddr())
+	fmt.Printf("Accept connection from client: %v\n", conn.RemoteAddr())
 	// exchange params
 	if test.set_send_state(IPERF_EXCHANGE_PARAMS) < 0 {
 		log.Error("set_send_state error.")
@@ -264,8 +268,7 @@ func (test *iperf_test) run_server() int{
 			}
 		}
 	}
-	fmt.Printf("Server side done.")
-	time.Sleep(time.Duration(time.Second*5))
+	log.Debugf("Server side done.")
 	return 0
 }
 

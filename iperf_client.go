@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"time"
 )
@@ -120,11 +122,14 @@ func (test *iperf_test) handleClientCtrlMsg() {
 			test.state = uint(state)
 			log.Infof("Client Enter %v state...", test.state)
 		} else {
-			if err == io.EOF{
-				log.Info("Server control connection close.")
+			if serr, ok := err.(*net.OpError); ok{
+				log.Info("Client control connection close. err = %T %v", serr, serr)
 				test.ctrl_conn.Close()
+			} else if err == os.ErrClosed || err == io.ErrClosedPipe || err == io.EOF{
+				log.Info("Client control connection close. err = %T %v", serr, serr)
 			} else {
-				log.Errorf("ctrl_conn read failed. err=%v", err)
+				log.Errorf("ctrl_conn read failed. err=%T, %v", err, err)
+				test.ctrl_conn.Close()
 			}
 			return
 		}
@@ -159,7 +164,7 @@ func (test *iperf_test) handleClientCtrlMsg() {
 				return
 			}
 		case TEST_RUNNING:
-			test.ctrl_chan <- test.state
+			test.ctrl_chan <- TEST_RUNNING
 			break
 		case IPERF_EXCHANGE_RESULT:
 			if rtn := test.exchange_results(); rtn < 0 {
@@ -194,6 +199,7 @@ func (test *iperf_test) ConnectServer() int{
 		return -1
 	}
 	test.ctrl_conn = conn
+	fmt.Printf("Connect to server %v succeed.\n", test.addr + ":" + strconv.Itoa(int(test.port)))
 	return 0
 }
 func (test *iperf_test) run_client() int{
@@ -211,7 +217,6 @@ func (test *iperf_test) run_client() int{
 	for is_iperf_done != true {
 		select {
 		case state := <-test.ctrl_chan:
-			log.Debugf("Reach here %v", state)
 			if state == TEST_RUNNING {
 				// set non-block for non-UDP test. unfinished
 				// Regular mode. Client sends.
@@ -223,10 +228,10 @@ func (test *iperf_test) run_client() int{
 				log.Info("Create all streams finish...")
 			} else if state == TEST_END {
 				test_end_num ++
-				if test_end_num < test.stream_num{
+				if test_end_num < test.stream_num || test_end_num == test.stream_num + 1{ 	// redundant TEST_END signal generate by set_send_state
 					continue
-				} else if test_end_num > test.stream_num {
-					log.Errorf("Receive more TEST_END signal from send streams.")
+				} else if test_end_num > test.stream_num + 1{
+					log.Errorf("Receive more TEST_END signal than expected")
 					return -1
 				}
 				log.Infof("Client All Send Stream closed.")

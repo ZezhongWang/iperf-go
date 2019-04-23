@@ -22,8 +22,6 @@ func init(){
 	// log init
 	backend := logging.NewLogBackend(os.Stderr, "", 0)
 	backendFormatter := logging.NewBackendFormatter(backend, format)
-	logging.SetLevel(logging.INFO, "iperf")
+	logging.SetLevel(logging.ERROR, "iperf")
 	logging.SetBackend(backendFormatter)
-
-	log.Info("Go-logging init finish")
 }
