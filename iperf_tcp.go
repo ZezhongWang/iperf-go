@@ -18,7 +18,7 @@ func (tcp *tcp_proto) name() string{
 
 func (tcp *tcp_proto) accept(test *iperf_test) (net.Conn, error){
 	log.Debugf("Enter TCP accept")
-	conn, err := test.listener.Accept()
+	conn, err := test.proto_listener.Accept()
 	if err != nil{
 		return nil, err
 	}

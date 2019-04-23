@@ -19,6 +19,7 @@ var server_test, client_test *iperf_test
 func init(){
 
 	logging.SetLevel(logging.ERROR, "iperf")
+	logging.SetLevel(logging.ERROR, "rudp")
 	/* log settting */
 
 	server_test = new_iperf_test()
@@ -29,21 +30,42 @@ func init(){
 	server_test.is_server = true
 	server_test.port = portServer
 
-	client_test.set_protocol(TCP_NAME)
 	client_test.is_server = false
 	client_test.port = portServer
 	client_test.addr = addrClient
+
+
 	client_test.interval = 1000 	// 1000 ms
 	client_test.duration = 5		// 5 s for test
 	client_test.stream_num = 1		// 1 stream only
+
+	//TCPSetting()
+
+	RUDPSetting()
+	//client_test.setting.burst = true
+	go server_test.run_server()
+	time.Sleep(time.Second)
+}
+
+func TCPSetting(){
+	client_test.set_protocol(TCP_NAME)
 	client_test.no_delay = true
 	client_test.setting.blksize = DEFAULT_TCP_BLKSIZE
 	client_test.setting.burst = false
 	client_test.setting.rate = 1024*1024*1024*1024		// b/s
 	client_test.setting.pacing_time = 100		//ms
-	//client_test.setting.burst = true
-	go server_test.run_server()
-	time.Sleep(time.Second)
+}
+
+func RUDPSetting(){
+	client_test.set_protocol(RUDP_NAME)
+	client_test.no_delay = true
+	client_test.setting.blksize = DEFAULT_RUDP_BLKSIZE
+	client_test.setting.burst = true
+	client_test.setting.no_cong = true
+	client_test.setting.window_size = 1024
+	client_test.setting.read_buf_size = DEFAULT_READ_BUF_SIZE
+	client_test.setting.write_buf_size = DEFAULT_WRITE_BUF_SIZE
+	client_test.setting.flush_interval = DEFAULT_FLUSH_INTERVAL
 }
 
 func RecvCheckState(t *testing.T, state int) int {
@@ -180,7 +202,14 @@ func handleTestRunning(t *testing.T) int{
 	// check server
 	assert.Equal(t, server_test.done, true)
 	assert.Equal(t, server_test.state, uint(IPERF_EXCHANGE_RESULT))
-	assert.Equal(t, server_test.bytes_received, client_test.bytes_sent)
+	absolute_bytes_diff := int64(server_test.bytes_received) - int64(client_test.bytes_sent)
+	if absolute_bytes_diff < 0{
+		 absolute_bytes_diff = 0 - absolute_bytes_diff
+	}
+	if float64(absolute_bytes_diff) / float64(client_test.bytes_sent) > 0.01 {	// if bytes difference larger than 1%
+		t.FailNow()
+	}
+	//assert.Equal(t, server_test.bytes_received, client_test.bytes_sent)
 	//assert.Equal(t, server_test.blocks_received, client_test.blocks_sent)		// block num not always same
 	total_bytes = 0
 	for _, sp := range server_test.streams  {
@@ -210,7 +239,8 @@ func handleExchangeResult(t *testing.T) int{
 /*
 	Test case can only be run one by one
  */
-/*
+
+ /*
 func TestCtrlConnect(t *testing.T){
 	if rtn := client_test.ConnectServer(); rtn < 0 {
 		t.FailNow()

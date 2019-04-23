@@ -39,8 +39,12 @@ const(
 const(
 	DEFAULT_TCP_BLKSIZE		= 128*1024	// default read/write block size
 	DEFAULT_UDP_BLKSIZE 	= 1460		// default is dynamically set
-	DEFAULT_RUDP_BLKSIZE		= 128*1024	// default read/write block size
+	DEFAULT_RUDP_BLKSIZE	= 128*1024	// default read/write block size
 
+	DEFAULT_RUDP_WNDSIZE	= 1024		// rudp window size
+	DEFAULT_WRITE_BUF_SIZE  = 4*1024*1024		// rudp write buffer size
+	DEFAULT_READ_BUF_SIZE  	= 4*1024*1024		// rudp read buffer size
+	DEFAULT_FLUSH_INTERVAL  = 10				// rudp flush interval 10 ms default
 	MS_TO_NS 				= 1000000
 	S_TO_NS					= 1000000000
 	MB_TO_B					= 1024*1024
@@ -141,6 +145,13 @@ type iperf_setting struct{
 	pacing_time 	uint		// ms
 	bytes 			uint64
 	blocks 			uint64
+
+	// rudp only
+	window_size		uint
+	read_buf_size	uint		// bit
+	write_buf_size	uint		// bit
+	flush_interval	uint		// ms
+	no_cong			bool
 }
 
 // params to exchange
@@ -152,6 +163,11 @@ type stream_params struct{
 	Interval		uint
 	StreamNum		uint
 	Blksize			uint
+	WindowSize		uint
+	ReadBufSize 	uint
+	WriteBufSize	uint
+	FlushInterval	uint
+	NoCong			bool
 }
 
 func (p stream_params) String() string{

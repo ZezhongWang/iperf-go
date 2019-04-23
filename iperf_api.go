@@ -102,6 +102,11 @@ func (test *iperf_test) send_params() int {
 		Interval:	test.interval,
 		StreamNum:	test.stream_num,
 		Blksize:	test.setting.blksize,
+		WindowSize: test.setting.window_size,
+		ReadBufSize: test.setting.read_buf_size,
+		WriteBufSize: test.setting.write_buf_size,
+		FlushInterval: test.setting.flush_interval,
+		NoCong:		test.setting.no_cong,
 	}
 	//encoder := json.NewEncoder(test.ctrl_conn)
 	//err := encoder.Encode(params)
@@ -143,6 +148,12 @@ func (test *iperf_test) get_params() int {
 	test.interval = params.Interval
 	test.stream_num = params.StreamNum
 	test.setting.blksize = params.Blksize
+	// rudp only
+	test.setting.window_size = params.WindowSize
+	test.setting.write_buf_size = params.WriteBufSize
+	test.setting.read_buf_size = params.ReadBufSize
+	test.setting.flush_interval = params.FlushInterval
+	test.setting.no_cong = params.NoCong
 	return 0
 }
 
@@ -288,6 +299,13 @@ func (test *iperf_test)parse_arguments() int {
 	var bandwidth_flag = flag.Uint("b", 0, "bandwidth limit. (Mb/s)")
 	var debug_flag = flag.Bool("debug", false, "debug mode")
 	var no_delay_flag = flag.Bool("D", false, "no delay option")
+	// RUDP specific option
+	var windows_size_flag = flag.Uint("w", 32, "rudp window size")
+	var read_buffer_size_flag = flag.Uint("rb", 4*1024, "read buffer size (Kb)")
+	var write_buffer_size_flag = flag.Uint("wb", 4*1024, "write buffer size (Kb)")
+	var flush_interval_flag = flag.Uint("f", 10, "flush interval for rudp (ms)")
+	var no_cong_flag = flag.Bool("nc", true, "no congestion control or BBR")
+
 	// parse argument
 	flag.Parse()
 
@@ -314,6 +332,11 @@ func (test *iperf_test)parse_arguments() int {
 	if valid_protocol == false{
 		return -2
 	}
+	//if flagset["nc"] == true{
+	//	test.setting.no_cong = true
+	//} else {
+	//	test.setting.no_cong = false
+	//}
 
 	// set block size
 	if  flagset["l"] == false{
@@ -338,8 +361,10 @@ func (test *iperf_test)parse_arguments() int {
 
 	if *debug_flag == true{
 		logging.SetLevel(logging.DEBUG, "iperf")
+		logging.SetLevel(logging.DEBUG, "rudp")
 	} else {
 		logging.SetLevel(logging.ERROR, "iperf")
+		logging.SetLevel(logging.ERROR, "rudp")
 	}
 	// pass to iperf_test
 	if *server_flag == true{
@@ -359,6 +384,13 @@ func (test *iperf_test)parse_arguments() int {
 	test.interval = *interval_flag
 	test.duration = *dur_flag		// 10s
 	test.stream_num = *parallel_flag
+	// rudp only
+	test.setting.window_size = *windows_size_flag
+	test.setting.read_buf_size = *read_buffer_size_flag * 1024	// Kb to b
+	test.setting.write_buf_size = *write_buffer_size_flag * 1024
+	test.setting.flush_interval = *flush_interval_flag
+	test.setting.no_cong = *no_cong_flag
+
 	if test.interval > test.duration * 1000{
 		log.Errorf("interval must smaller than duration")
 	}
@@ -397,15 +429,22 @@ func (test *iperf_test) free_test() int {
 }
 
 func (test *iperf_test) Print() {
-	var proto_name string
-	if test.proto != nil {
-		proto_name = test.proto.name()
+	if test.is_server {
+		return
 	}
-
+	if test.proto == nil {
+		log.Errorf("Protocol not set.")
+		return
+	}
 	fmt.Printf("Iperf started:\n")
-	if test.is_server == false{
+	if test.proto.name() == TCP_NAME{
 		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n",
-			 test.addr, test.port, proto_name, test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num)
+			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num)
+	} else if test.proto.name() == RUDP_NAME{
+		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n" +
+			"RUDP settting: windowSize:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\n",
+			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num,
+			test.setting.window_size, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong)
 	}
 }
 
@@ -422,15 +461,21 @@ func (sp *iperf_stream) iperf_recv(test *iperf_test) {
 		var n int
 		if n = sp.rcv(sp); n < 0{
 			if n == -1 {
-				log.Debugf("Server Quit receiving")
+				log.Debugf("Stream Quit receiving")
 				return
 			}
 			log.Errorf("Iperf streams receive failed. n = %v", n)
 			return
 		}
-		test.bytes_received += uint64(n)
-		test.blocks_received += 1
+		if test.state == TEST_RUNNING {
+			test.bytes_received += uint64(n)
+			test.blocks_received += 1
+		}
 		//log.Debugf("Stream receive data %v bytes of total %v bytes", n, test.bytes_received)
+		if test.done {
+			log.Debugf("Stream quit receiving. test done.")
+			return
+		}
 	}
 }
 
