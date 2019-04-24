@@ -96,5 +96,4 @@
 
 ## 内部状态机
 
-![image](https://github.com/ZezhongWang/iperf-go/)
 # <img src="stateMachine.png" alt="stateMachine"/> 
