@@ -118,7 +118,9 @@ type protocol interface {
 	connect(test *iperf_test) (net.Conn, error)
 	send(test *iperf_stream) int
 	recv(test *iperf_stream) int
+	// init will be called before send/recv data
 	init(test *iperf_test) int
+	// stats_callback will be invoked intervally, please get some other statistics in this function
 	stats_callback(test *iperf_test, sp *iperf_stream, temp_result *iperf_interval_results) int
 }
 

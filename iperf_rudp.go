@@ -68,6 +68,9 @@ func (rudp *rudp_proto) send(sp *iperf_stream) int{
 		if serr, ok := err.(*net.OpError); ok{
 			log.Debugf("rudp conn already close = %v", serr)
 			return -1
+		} else if err.Error() == "broken pipe"{
+			log.Debugf("rudp conn already close = %v", err.Error())
+			return -1
 		} else if err == os.ErrClosed || err == io.ErrClosedPipe{
 			log.Debugf("send rudp socket close.")
 			return -1
@@ -92,6 +95,9 @@ func (rudp *rudp_proto) recv(sp *iperf_stream) int{
 	if err != nil {
 		if serr, ok := err.(*net.OpError); ok{
 			log.Debugf("rudp conn already close = %v", serr)
+			return -1
+		} else if err.Error() == "broken pipe"{
+			log.Debugf("rudp conn already close = %v", err.Error())
 			return -1
 		} else if err == io.EOF || err == os.ErrClosed || err == io.ErrClosedPipe{
 			log.Debugf("recv rudp socket close. EOF")
