@@ -223,7 +223,7 @@ func (test *iperf_test) run_client() int{
 				log.Info("Client enter Test Running state...")
 					for i, sp := range test.streams{
 						go sp.iperf_send(test)
-						log.Info("Stream %v start sending.", i)
+						log.Infof("Stream %v start sending.", i)
 					}
 				log.Info("Create all streams finish...")
 			} else if state == TEST_END {

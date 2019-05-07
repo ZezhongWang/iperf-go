@@ -62,7 +62,8 @@ func RUDPSetting(){
 	client_test.setting.blksize = DEFAULT_RUDP_BLKSIZE
 	client_test.setting.burst = true
 	client_test.setting.no_cong = true
-	client_test.setting.window_size = 1024
+	client_test.setting.snd_wnd = 1024
+	client_test.setting.rcv_wnd = 1024
 	client_test.setting.read_buf_size = DEFAULT_READ_BUF_SIZE
 	client_test.setting.write_buf_size = DEFAULT_WRITE_BUF_SIZE
 	client_test.setting.flush_interval = DEFAULT_FLUSH_INTERVAL

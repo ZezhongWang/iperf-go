@@ -102,7 +102,8 @@ func (test *iperf_test) send_params() int {
 		Interval:	test.interval,
 		StreamNum:	test.stream_num,
 		Blksize:	test.setting.blksize,
-		WindowSize: test.setting.window_size,
+		SndWnd:		test.setting.snd_wnd,
+		RcvWnd:		test.setting.rcv_wnd,
 		ReadBufSize: test.setting.read_buf_size,
 		WriteBufSize: test.setting.write_buf_size,
 		FlushInterval: test.setting.flush_interval,
@@ -149,7 +150,8 @@ func (test *iperf_test) get_params() int {
 	test.stream_num = params.StreamNum
 	test.setting.blksize = params.Blksize
 	// rudp only
-	test.setting.window_size = params.WindowSize
+	test.setting.snd_wnd = params.SndWnd
+	test.setting.rcv_wnd = params.RcvWnd
 	test.setting.write_buf_size = params.WriteBufSize
 	test.setting.read_buf_size = params.ReadBufSize
 	test.setting.flush_interval = params.FlushInterval
@@ -281,7 +283,7 @@ func (test *iperf_test) init_test() int{
 	main level interface
  */
 func (test *iperf_test) init() {
-	test.protocols = append(test.protocols, new(tcp_proto), new(rudp_proto))
+	test.protocols = append(test.protocols, new(tcp_proto), new(rudp_proto), new(kcp_proto))
 }
 
 func (test *iperf_test)parse_arguments() int {
@@ -300,7 +302,8 @@ func (test *iperf_test)parse_arguments() int {
 	var debug_flag = flag.Bool("debug", false, "debug mode")
 	var no_delay_flag = flag.Bool("D", false, "no delay option")
 	// RUDP specific option
-	var windows_size_flag = flag.Uint("w", 32, "rudp window size")
+	var snd_wnd_flag = flag.Uint("sw", 10, "rudp send window size")
+	var rcv_wnd_flag = flag.Uint("rw", 512, "rudp receive window size")
 	var read_buffer_size_flag = flag.Uint("rb", 4*1024, "read buffer size (Kb)")
 	var write_buffer_size_flag = flag.Uint("wb", 4*1024, "write buffer size (Kb)")
 	var flush_interval_flag = flag.Uint("f", 10, "flush interval for rudp (ms)")
@@ -323,7 +326,6 @@ func (test *iperf_test)parse_arguments() int {
 		}
 	}
 	valid_protocol := false
-	var PROTOCOL_LIST = [3]string{TCP_NAME, UDP_NAME, RUDP_NAME}
 	for _, proto := range PROTOCOL_LIST{
 		if *protocol_flag == proto {
 			valid_protocol = true
@@ -345,6 +347,8 @@ func (test *iperf_test)parse_arguments() int {
 		} else if *protocol_flag == UDP_NAME {
 			test.setting.blksize = DEFAULT_UDP_BLKSIZE
 		} else if *protocol_flag == RUDP_NAME {
+			test.setting.blksize = DEFAULT_RUDP_BLKSIZE
+		} else if *protocol_flag == KCP_NAME {
 			test.setting.blksize = DEFAULT_RUDP_BLKSIZE
 		}
 	} else {
@@ -385,7 +389,8 @@ func (test *iperf_test)parse_arguments() int {
 	test.duration = *dur_flag		// 10s
 	test.stream_num = *parallel_flag
 	// rudp only
-	test.setting.window_size = *windows_size_flag
+	test.setting.snd_wnd = *snd_wnd_flag
+	test.setting.rcv_wnd = *rcv_wnd_flag
 	test.setting.read_buf_size = *read_buffer_size_flag * 1024	// Kb to b
 	test.setting.write_buf_size = *write_buffer_size_flag * 1024
 	test.setting.flush_interval = *flush_interval_flag
@@ -442,9 +447,14 @@ func (test *iperf_test) Print() {
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num)
 	} else if test.proto.name() == RUDP_NAME{
 		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n" +
-			"RUDP settting: windowSize:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\n",
+			"RUDP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\n",
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num,
-			test.setting.window_size, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong)
+			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong)
+	} else if test.proto.name() == KCP_NAME{
+		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n" +
+			"KCP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\n",
+			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num,
+			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong)
 	}
 }
 
@@ -497,7 +507,7 @@ func (sp *iperf_stream) iperf_send(test *iperf_test) {
 			}
 			test.bytes_sent += uint64(n)
 			test.blocks_sent += 1
-			//log.Debugf("Stream sent data %v bytes of total %v bytes", n, test.bytes_sent)
+			log.Debugf("Stream sent data %v bytes of total %v bytes", n, test.bytes_sent)
 		}
 		if test.setting.burst == false {
 			test.check_throttle(sp, time.Now())

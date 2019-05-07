@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var PROTOCOL_LIST = [3]string{"tcp", "udp", "rudp"}
+var PROTOCOL_LIST = []string{"tcp", "udp", "rudp", "kcp"}
 
 const(
 	IPERF_START   			= 1
@@ -34,6 +34,7 @@ const(
 	TCP_NAME	= "tcp"
 	UDP_NAME	= "udp"
 	RUDP_NAME	= "rudp"
+	KCP_NAME 	= "kcp"
 )
 
 const(
@@ -41,6 +42,7 @@ const(
 	DEFAULT_UDP_BLKSIZE 	= 1460		// default is dynamically set
 	DEFAULT_RUDP_BLKSIZE	= 128*1024	// default read/write block size
 
+	// rudp / kcp
 	DEFAULT_RUDP_WNDSIZE	= 1024		// rudp window size
 	DEFAULT_WRITE_BUF_SIZE  = 4*1024*1024		// rudp write buffer size
 	DEFAULT_READ_BUF_SIZE  	= 4*1024*1024		// rudp read buffer size
@@ -48,6 +50,7 @@ const(
 	MS_TO_NS 				= 1000000
 	S_TO_NS					= 1000000000
 	MB_TO_B					= 1024*1024
+	ACCEPT_SIGNAL 			= 1
 )
 
 const(
@@ -149,7 +152,8 @@ type iperf_setting struct{
 	blocks 			uint64
 
 	// rudp only
-	window_size		uint
+	snd_wnd			uint
+	rcv_wnd			uint
 	read_buf_size	uint		// bit
 	write_buf_size	uint		// bit
 	flush_interval	uint		// ms
@@ -165,7 +169,8 @@ type stream_params struct{
 	Interval		uint
 	StreamNum		uint
 	Blksize			uint
-	WindowSize		uint
+	SndWnd			uint
+	RcvWnd			uint
 	ReadBufSize 	uint
 	WriteBufSize	uint
 	FlushInterval	uint

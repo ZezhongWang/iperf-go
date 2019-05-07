@@ -9,9 +9,6 @@ import (
 	"strconv"
 )
 
-const (
-	ACCEPT_SIGNAL 	= 1
-)
 
 type rudp_proto struct{
 }
@@ -120,8 +117,8 @@ func (rudp *rudp_proto) recv(sp *iperf_stream) int{
 func (rudp *rudp_proto) init(test *iperf_test) int{
 	for _, sp := range test.streams {
 		sp.conn.(*RUDP.RUDPSession).SetReadBuffer(int(test.setting.read_buf_size))
-		sp.conn.(*RUDP.RUDPSession).SetReadBuffer(int(test.setting.write_buf_size))
-		sp.conn.(*RUDP.RUDPSession).SetWindowSize(int(test.setting.window_size), int(test.setting.window_size))
+		sp.conn.(*RUDP.RUDPSession).SetWriteBuffer(int(test.setting.write_buf_size))
+		sp.conn.(*RUDP.RUDPSession).SetWindowSize(int(test.setting.snd_wnd), int(test.setting.rcv_wnd))
 		sp.conn.(*RUDP.RUDPSession).SetStreamMode(true)
 		var no_delay, resend, nc int
 		if test.no_delay {
