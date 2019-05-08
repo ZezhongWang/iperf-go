@@ -3,6 +3,8 @@ package main
 import (
 	RUDP "../rudp-go"
 	"encoding/binary"
+	"fmt"
+	"github.com/op/go-logging"
 	"io"
 	"net"
 	"os"
@@ -140,9 +142,22 @@ func (rudp *rudp_proto) init(test *iperf_test) int{
 func (rudp *rudp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_result *iperf_interval_results) int {
 	rp := sp.result
 	total_retrans := uint(RUDP.DefaultSnmp.RetransSegs)
+	total_lost := uint(RUDP.DefaultSnmp.LostSegs)
+	total_fast_resent := uint(RUDP.DefaultSnmp.FastRetransSegs)
+	// retrans
 	temp_result.interval_retrans = total_retrans - rp.stream_prev_total_retrans
 	rp.stream_retrans += temp_result.interval_retrans
 	rp.stream_prev_total_retrans = total_retrans
+	// lost
+	temp_result.interval_lost = total_lost - rp.stream_prev_total_lost
+	rp.stream_lost += temp_result.interval_lost
+	rp.stream_prev_total_lost = total_lost
+	// fast_resent
+	temp_result.interval_fast_resent = total_fast_resent - rp.stream_prev_total_fast_resent
+	rp.stream_fast_resent += temp_result.interval_fast_resent
+	rp.stream_prev_total_fast_resent = total_fast_resent
+
+	temp_result.rto = sp.conn.(*RUDP.RUDPSession).GetRTO() * 1000
 	temp_result.rtt = sp.conn.(*RUDP.RUDPSession).GetRTT() * 1000		// ms to micro sec
 	if rp.stream_min_rtt == 0 || temp_result.rtt < rp.stream_min_rtt {
 		rp.stream_min_rtt = temp_result.rtt
@@ -152,5 +167,21 @@ func (rudp *rudp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_
 	}
 	rp.stream_sum_rtt += temp_result.rtt
 	rp.stream_cnt_rtt ++
+	return 0
+}
+
+func (rudp *rudp_proto)teardown(test *iperf_test) int{
+	if logging.GetLevel("rudp") == logging.INFO ||
+		logging.GetLevel("rudp") == logging.DEBUG{
+		header := RUDP.DefaultSnmp.Header()
+		slices := RUDP.DefaultSnmp.ToSlice()
+		for k := range header{
+			fmt.Printf("%s: %v\t", header[k], slices[k])
+		}
+		fmt.Printf("\n")
+		if test.setting.no_cong == false {
+			RUDP.PrintTracker()
+		}
+	}
 	return 0
 }

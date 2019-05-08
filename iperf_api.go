@@ -97,6 +97,7 @@ func (test *iperf_test) send_params() int {
 	log.Debugf("Enter send_params")
 	params := stream_params{
 		ProtoName:	test.proto.name(),
+		Reverse:	test.reverse,
 		Duration:	test.duration,
 		NoDelay:	test.no_delay,
 		Interval:	test.interval,
@@ -108,6 +109,9 @@ func (test *iperf_test) send_params() int {
 		WriteBufSize: test.setting.write_buf_size,
 		FlushInterval: test.setting.flush_interval,
 		NoCong:		test.setting.no_cong,
+		Burst:		test.setting.burst,
+		Rate:		test.setting.rate,
+		PacingTime: test.setting.pacing_time,
 	}
 	//encoder := json.NewEncoder(test.ctrl_conn)
 	//err := encoder.Encode(params)
@@ -144,11 +148,15 @@ func (test *iperf_test) get_params() int {
 	}
 	log.Debugf("get params %v bytes: %v", n, params.String())
 	test.set_protocol(params.ProtoName)
+	test.set_test_reverse(params.Reverse)
 	test.duration = params.Duration
 	test.no_delay = params.NoDelay
 	test.interval = params.Interval
 	test.stream_num = params.StreamNum
 	test.setting.blksize = params.Blksize
+	test.setting.burst = params.Burst
+	test.setting.rate = params.Rate
+	test.setting.pacing_time = params.PacingTime
 	// rudp only
 	test.setting.snd_wnd = params.SndWnd
 	test.setting.rcv_wnd = params.RcvWnd
@@ -177,7 +185,7 @@ func (test *iperf_test) send_results() int {
 	var results = make(stream_results_array, test.stream_num)
 	for i, sp := range test.streams{
 		var bytes_transfer uint64
-		if test.is_server {
+		if test.mode == IPERF_RECEIVER {
 			bytes_transfer = sp.result.bytes_received
 		} else {
 			bytes_transfer = sp.result.bytes_sent
@@ -237,9 +245,10 @@ func (test *iperf_test) get_results() int {
 
 	for i, result := range results{
 		sp := test.streams[i]
-		if test.is_server {
+		if test.mode == IPERF_RECEIVER {
 			sp.result.bytes_sent = result.Bytes
 			sp.result.stream_retrans = result.Retrans
+
 		} else {
 			sp.result.bytes_received = result.Bytes
 			//sp.jitter = result.jitter
@@ -292,14 +301,16 @@ func (test *iperf_test)parse_arguments() int {
 	var help_flag = flag.Bool("h", false, "this help")
 	var server_flag = flag.Bool("s", false, "server side")
 	var client_flag = flag.String("c", "127.0.0.1", "client side")
+	var reverse_flag = flag.Bool("R", false, "reverse mode. client receive, server send")
 	var port_flag = flag.Uint("p", 5201, "connect/listen port")
 	var protocol_flag = flag.String("proto", TCP_NAME, "protocol under test")
 	var dur_flag = flag.Uint("d", 10, "duration (s)")
 	var interval_flag = flag.Uint("i", 1000, "test interval (ms)")
 	var parallel_flag = flag.Uint("P", 1, "The number of simultaneous connections")
-	var blksize_flag = flag.Uint("l", 1400, "send/read block size")
+	var blksize_flag = flag.Uint("l", 4*1024, "send/read block size")
 	var bandwidth_flag = flag.Uint("b", 0, "bandwidth limit. (Mb/s)")
 	var debug_flag = flag.Bool("debug", false, "debug mode")
+	var info_flag = flag.Bool("info", false, "info mode")
 	var no_delay_flag = flag.Bool("D", false, "no delay option")
 	// RUDP specific option
 	var snd_wnd_flag = flag.Uint("sw", 10, "rudp send window size")
@@ -366,6 +377,9 @@ func (test *iperf_test)parse_arguments() int {
 	if *debug_flag == true{
 		logging.SetLevel(logging.DEBUG, "iperf")
 		logging.SetLevel(logging.DEBUG, "rudp")
+	} else if *info_flag == true{
+		logging.SetLevel(logging.INFO, "iperf")
+		logging.SetLevel(logging.INFO, "rudp")
 	} else {
 		logging.SetLevel(logging.ERROR, "iperf")
 		logging.SetLevel(logging.ERROR, "rudp")
@@ -382,7 +396,7 @@ func (test *iperf_test)parse_arguments() int {
 		}
 		test.addr = *client_flag
 	}
-
+	test.set_test_reverse(*reverse_flag)
 	test.port = *port_flag
 	test.state = 0
 	test.interval = *interval_flag
@@ -429,6 +443,23 @@ func (test *iperf_test) run_test() int {
 	return 0
 }
 
+func (test *iperf_test) set_test_reverse(reverse bool) {
+	test.reverse = reverse
+	if reverse == true{
+		if test.is_server {
+			test.mode = IPERF_SENDER
+		} else {
+			test.mode = IPERF_RECEIVER
+		}
+	} else {
+		if test.is_server {
+			test.mode = IPERF_RECEIVER
+		} else {
+			test.mode = IPERF_SENDER
+		}
+	}
+}
+
 func (test *iperf_test) free_test() int {
 	return 0
 }
@@ -447,14 +478,14 @@ func (test *iperf_test) Print() {
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num)
 	} else if test.proto.name() == RUDP_NAME{
 		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n" +
-			"RUDP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\n",
+			"RUDP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\tflushInterval:%v\n",
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num,
-			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong)
+			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong, test.setting.flush_interval)
 	} else if test.proto.name() == KCP_NAME{
 		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n" +
-			"KCP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\n",
+			"KCP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\tflushInterval:%v\n",
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num,
-			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong)
+			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong, test.setting.flush_interval)
 	}
 }
 
@@ -483,6 +514,7 @@ func (sp *iperf_stream) iperf_recv(test *iperf_test) {
 		}
 		//log.Debugf("Stream receive data %v bytes of total %v bytes", n, test.bytes_received)
 		if test.done {
+			test.ctrl_chan <- TEST_END
 			log.Debugf("Stream quit receiving. test done.")
 			return
 		}
@@ -522,6 +554,22 @@ func (sp *iperf_stream) iperf_send(test *iperf_test) {
 		}
 	}
 }
+
+func (test *iperf_test) create_sender_ticker() int {
+	for _, sp := range test.streams{
+		sp.can_send = true
+		if test.setting.rate != 0 {
+			if test.setting.pacing_time == 0 || test.setting.burst == true {
+				log.Error("pacing_time & rate & burst should be set at the same time.")
+				return -1
+			}
+			var cd TimerClientData
+			cd.p = sp
+			sp.send_ticker = ticker_create(time.Now(), send_ticker_proc, cd, test.setting.pacing_time, ^uint(0))
+		}
+	}
+	return 0
+}
 /*
 	----------------------------------------------------
 	****************** call_back func ******************
@@ -532,10 +580,10 @@ func (sp *iperf_stream) iperf_send(test *iperf_test) {
 func iperf_reporter_callback(test *iperf_test){
 	<- test.chStats		// only call this function after stats
 	if test.state == TEST_RUNNING {
-		log.Debugf("TEST_RUNNING report, role = %v, done = %v", test.is_server, test.done)
+		log.Debugf("TEST_RUNNING report, role = %v, mode = %v, done = %v", test.is_server, test.mode, test.done)
 		test.iperf_print_intermediate()
 	} else if test.state == TEST_END || test.state == IPERF_DISPLAY_RESULT {
-		log.Debugf("TEST_END report, role = %v, done = %v", test.is_server, test.done)
+		log.Debugf("TEST_END report, role = %v, mode = %v, done = %v", test.is_server, test.mode, test.done)
 		test.iperf_print_intermediate()
 		test.iperf_print_results()
 	} else {
@@ -545,11 +593,16 @@ func iperf_reporter_callback(test *iperf_test){
 
 func (test *iperf_test)iperf_print_intermediate(){
 	var sum_bytes_transfer, sum_rtt uint64
+	var sum_retrans uint
 	var display_start_time, display_end_time float64
 	for i, sp := range test.streams{
 		if i == 0 && len(sp.result.interval_results) == 1{
 			// first time to print result, print header
-			fmt.Printf(TCP_REPORT_HEADER)
+			if test.proto.name() == TCP_NAME {
+				fmt.Printf(TCP_REPORT_HEADER)
+			} else {
+				fmt.Printf(RUDP_REPORT_HEADER)
+			}
 		}
 		interval_seq := len(sp.result.interval_results) - 1
 		rp := sp.result.interval_results[interval_seq]		// get the last one
@@ -559,23 +612,33 @@ func (test *iperf_test)iperf_print_intermediate(){
 		if dur_not_same(supposed_start_time, real_start_time) {
 			log.Errorf("Start time differ from expected. supposed = %v, real = %v",
 				supposed_start_time.Nanoseconds() / MS_TO_NS, real_start_time.Nanoseconds() / MS_TO_NS)
-			return
+			//return
 		}
 		sum_bytes_transfer += rp.bytes_transfered
+		sum_retrans += rp.interval_retrans
 		sum_rtt += uint64(rp.rtt)
 		display_start_time = float64(real_start_time.Nanoseconds())/ S_TO_NS
 		display_end_time = float64(real_end_time.Nanoseconds())/ S_TO_NS
 		display_bytes_transfer := float64(rp.bytes_transfered) / MB_TO_B
 		display_bandwidth := display_bytes_transfer / float64(test.interval) * 1000 * 8	// Mb/s
 		// output single stream interval report
-		fmt.Printf(TCP_REPORT_SINGLE_STREAM, i,
-			display_start_time, display_end_time, display_bytes_transfer, display_bandwidth, float64(rp.rtt)/1000)
+		if test.proto.name() == TCP_NAME {
+			display_retrans_rate :=  float64(rp.interval_retrans) / (float64(rp.bytes_transfered) / TCP_MSS) * 100
+			fmt.Printf(TCP_REPORT_SINGLE_STREAM, i, display_start_time, display_end_time,
+				display_bytes_transfer, display_bandwidth, float64(rp.rtt)/1000, rp.interval_retrans, display_retrans_rate)
+		} else {
+			display_retrans_rate := float64(rp.interval_retrans) / (float64(rp.bytes_transfered) / RUDP_MSS) * 100		// to percentage
+			display_lost_rate := float64(rp.interval_lost) / (float64(rp.bytes_transfered) / RUDP_MSS) * 100
+			display_fast_resent_rate := float64(rp.interval_fast_resent) / (float64(rp.bytes_transfered) / RUDP_MSS) * 100
+			fmt.Printf(RUDP_REPORT_SINGLE_STREAM, i, display_start_time, display_end_time, display_bytes_transfer,
+				display_bandwidth, float64(rp.rtt)/1000, rp.interval_retrans, display_retrans_rate, display_lost_rate, display_fast_resent_rate)
+		}
 	}
 	if test.stream_num > 1 {
 		display_sum_bytes_transfer := float64(sum_bytes_transfer) / MB_TO_B
 		display_bandwidth := display_sum_bytes_transfer /  float64(test.interval) * 1000 * 8
-		fmt.Printf(TCP_REPORT_SUM_STREAM, display_start_time, display_end_time, display_sum_bytes_transfer,
-			display_bandwidth, float64(sum_rtt)/1000/float64(test.stream_num))
+		fmt.Printf(REPORT_SUM_STREAM, display_start_time, display_end_time, display_sum_bytes_transfer,
+			display_bandwidth, float64(sum_rtt)/1000/float64(test.stream_num), sum_retrans)
 		fmt.Printf(REPORT_SEPERATOR)
 	}
 }
@@ -583,7 +646,7 @@ func (test *iperf_test)iperf_print_intermediate(){
 func dur_not_same(d time.Duration, d2 time.Duration) bool {
 	// if deviation exceed 1ms, there might be problems
 	var diff_in_ms int = int(d.Nanoseconds() / MS_TO_NS - d2.Nanoseconds() / MS_TO_NS)
-	if diff_in_ms < -10 || diff_in_ms > 10 {
+	if diff_in_ms < -100 || diff_in_ms > 100 {
 		return true
 	}
 	return false
@@ -591,19 +654,25 @@ func dur_not_same(d time.Duration, d2 time.Duration) bool {
 
 func (test *iperf_test)iperf_print_results(){
 	fmt.Printf(SUMMARY_SEPERATOR)
-	fmt.Printf(TCP_REPORT_HEADER)
+	if test.proto.name() == TCP_NAME {
+		fmt.Printf(TCP_REPORT_HEADER)	
+	} else {
+		fmt.Printf(RUDP_REPORT_HEADER)
+	}
+	
 	if len(test.streams) <=0 {
 		log.Errorf("No streams available.")
 		return
 	}
 	var sum_bytes_transfer uint64
+	var sum_retrans uint
 	var avg_rtt float64
 	var display_start_time, display_end_time float64
 	for i, sp := range test.streams{
 		display_start_time = float64(0)
 		display_end_time = float64(sp.result.end_time.Sub(sp.result.start_time).Nanoseconds())/ S_TO_NS
 		var display_bytes_transfer float64
-		if test.is_server {
+		if test.mode == IPERF_RECEIVER {
 			display_bytes_transfer = float64(sp.result.bytes_received) / MB_TO_B
 			sum_bytes_transfer += sp.result.bytes_received
 		} else {
@@ -613,15 +682,31 @@ func (test *iperf_test)iperf_print_results(){
 		display_rtt := float64(sp.result.stream_sum_rtt) / float64(sp.result.stream_cnt_rtt) / 1000
 		avg_rtt += display_rtt
 		display_bandwidth := display_bytes_transfer / float64(test.duration) * 8		// Mb/s
+		sum_retrans += sp.result.stream_retrans
+		var role string
+		if sp.role == SENDER_STREAM {
+			role = "SENDER"
+		} else {
+			role = "RECEIVER"
+		}
 		// output single stream final report
-		fmt.Printf(TCP_REPORT_SINGLE_STREAM, i, display_start_time,
-			display_end_time, display_bytes_transfer, display_bandwidth, display_rtt)
+		if test.proto.name() == TCP_NAME {
+			display_retrans_rate := float64(sp.result.stream_retrans) / (display_bytes_transfer * MB_TO_B / TCP_MSS)
+			fmt.Printf(TCP_REPORT_SINGLE_RESULT, i, display_start_time, display_end_time, display_bytes_transfer,
+				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate, role)
+		} else {
+			display_retrans_rate := float64(sp.result.stream_retrans) / (display_bytes_transfer * MB_TO_B / RUDP_MSS) * 100
+			display_lost_rate := float64(sp.result.stream_lost) / (display_bytes_transfer * MB_TO_B / RUDP_MSS) * 100
+			display_fast_resent_rate := float64(sp.result.stream_fast_resent) / (display_bytes_transfer * MB_TO_B / RUDP_MSS) * 100
+			fmt.Printf(RUDP_REPORT_SINGLE_RESULT, i, display_start_time, display_end_time, display_bytes_transfer,
+				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate, display_lost_rate, display_fast_resent_rate, role)
+		}
 	}
 	if test.stream_num > 1 {
 		display_sum_bytes_transfer := float64(sum_bytes_transfer) / MB_TO_B
 		display_bandwidth := display_sum_bytes_transfer /  float64(test.duration) * 1000 * 8
-		fmt.Printf(TCP_REPORT_SUM_STREAM, display_start_time, display_end_time,
-			display_sum_bytes_transfer, display_bandwidth, avg_rtt / float64(test.stream_num))
+		fmt.Printf(REPORT_SUM_STREAM, display_start_time, display_end_time,
+			display_sum_bytes_transfer, display_bandwidth, avg_rtt / float64(test.stream_num), sum_retrans)
 	}
 }
 
@@ -640,7 +725,7 @@ func iperf_stats_callback(test *iperf_test){
 		temp_result.interval_end_time = rp.end_time
 		temp_result.interval_dur = temp_result.interval_end_time.Sub(temp_result.interval_start_time)
 		test.proto.stats_callback(test, sp, &temp_result)	// write temp_result differ from proto to proto
-		if test.is_server {
+		if test.mode == IPERF_RECEIVER {
 			temp_result.bytes_transfered = rp.bytes_received_this_interval
 		} else {
 			temp_result.bytes_transfered = rp.bytes_sent_this_interval

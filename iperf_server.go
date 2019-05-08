@@ -86,6 +86,7 @@ func (test *iperf_test) handleServerCtrlMsg() {
 			test.state = IPERF_DONE
 			log.Debugf("Server reach IPERF_DONE")
 			test.ctrl_chan <- IPERF_DONE
+			test.proto.teardown(test)
 			return
 		case CLIENT_TERMINATE:		//not used yet
 			old_state := test.state
@@ -222,7 +223,13 @@ func (test *iperf_test) run_server() int{
 						return -4
 					}
 					stream_num ++
-					sp := test.new_stream(proto_conn, RECEIVER_STREAM)
+					var sp *iperf_stream
+					if test.mode == IPERF_SENDER {
+						sp = test.new_stream(proto_conn, SENDER_STREAM)
+					} else {
+						sp = test.new_stream(proto_conn, RECEIVER_STREAM)
+					}
+
 					if sp == nil {
 						log.Error("Create new strema failed.")
 						return -4
@@ -248,6 +255,12 @@ func (test *iperf_test) run_server() int{
 						log.Errorf("Create Server Omit timer failed.")
 						return -7
 					}
+					if test.mode == IPERF_SENDER{
+						if rtn := test.create_sender_ticker(); rtn < 0 {
+							log.Errorf("create_sender_ticker failed. rtn = %v", rtn)
+							return -7
+						}
+					}
 					if test.set_send_state(TEST_RUNNING) != 0{
 						log.Errorf("set_send_state error")
 						return -8
@@ -257,10 +270,17 @@ func (test *iperf_test) run_server() int{
 				// Regular mode. Server receives.
 				log.Info("Enter Test Running state...")
 				for i, sp := range test.streams{
-					go sp.iperf_recv(test)
-					log.Infof("Stream %v start receiving.", i)
+					if sp.role == SENDER_STREAM {
+						go sp.iperf_send(test)
+						log.Infof("Server Stream %v start sending.", i)
+					} else {
+						go sp.iperf_recv(test)
+						log.Infof("Server Stream %v start receiving.", i)
+					}
 				}
-				log.Info("All streams start receiving...")
+				log.Info("Server all streams start...")
+			} else if state == TEST_END {
+				continue
 			} else if state == IPERF_DONE{
 				is_iperf_done = true
 			} else {

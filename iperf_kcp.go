@@ -159,3 +159,7 @@ func (kcp *kcp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_re
 	rp.stream_cnt_rtt ++
 	return 0
 }
+
+func (kcp *kcp_proto) teardown(test *iperf_test) int{
+	return 0
+}

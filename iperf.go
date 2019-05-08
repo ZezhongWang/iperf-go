@@ -28,6 +28,9 @@ const(
 	/* unexpected situation */
 	CLIENT_TERMINATE		= 50
 	SERVER_TERMINATE		= 51
+
+	IPERF_SENDER	= true
+	IPERF_RECEIVER  = false
 )
 
 const(
@@ -40,10 +43,10 @@ const(
 const(
 	DEFAULT_TCP_BLKSIZE		= 128*1024	// default read/write block size
 	DEFAULT_UDP_BLKSIZE 	= 1460		// default is dynamically set
-	DEFAULT_RUDP_BLKSIZE	= 128*1024	// default read/write block size
-
+	DEFAULT_RUDP_BLKSIZE	= 4*1024	// default read/write block size
+	TCP_MSS					= 1460		// tcp mss size
+	RUDP_MSS				= 1376		// rudp mss size
 	// rudp / kcp
-	DEFAULT_RUDP_WNDSIZE	= 1024		// rudp window size
 	DEFAULT_WRITE_BUF_SIZE  = 4*1024*1024		// rudp write buffer size
 	DEFAULT_READ_BUF_SIZE  	= 4*1024*1024		// rudp read buffer size
 	DEFAULT_FLUSH_INTERVAL  = 10				// rudp flush interval 10 ms default
@@ -54,14 +57,20 @@ const(
 )
 
 const(
-	TCP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT\n"
-	TCP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\n"
-	TCP_REPORT_SUM_STREAM 	 = "[SUM] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\n"
-	REPORT_SEPERATOR 	= "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
-	SUMMARY_SEPERATOR 	= "- - - - - - - - - - - - SUMMARY - - - - - - - - - - - -\n"
+	TCP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT      Retrans   Retrans(%%)\n"
+	RUDP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT      Retrans   Retrans(%%)  Lost(%%)  Fast Retrans\n"
+	TCP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\n"
+	RUDP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\n"
+	TCP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t[%s]\n"
+	RUDP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\t[%s]\n"
+	REPORT_SUM_STREAM 	 = "[SUM] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t\n"
+	REPORT_SEPERATOR 	= "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
+	SUMMARY_SEPERATOR 	= "- - - - - - - - - - - - - - - - SUMMARY - - - - - - - - - - - - - - - -\n"
 )
 type iperf_test struct {
 	is_server	bool
+	mode 		bool 	// true for sender. false for receiver
+	reverse 	bool 	// server send?
 	addr		string
 	port		uint
 	state 		uint
@@ -123,6 +132,8 @@ type protocol interface {
 	recv(test *iperf_stream) int
 	// init will be called before send/recv data
 	init(test *iperf_test) int
+	// teardown will be called before send/recv data
+	teardown(test *iperf_test) int
 	// stats_callback will be invoked intervally, please get some other statistics in this function
 	stats_callback(test *iperf_test, sp *iperf_stream, temp_result *iperf_interval_results) int
 }
@@ -143,7 +154,6 @@ type iperf_stream struct{
 }
 
 type iperf_setting struct{
-	skt_bufsize 	uint
 	blksize			uint
 	burst			bool		// burst & rate & pacing_time should be set at the same time
 	rate			uint		// bit per second
@@ -164,6 +174,7 @@ type iperf_setting struct{
 // tips: all the members should be visible, or json decoder cannot encode it
 type stream_params struct{
 	ProtoName		string
+	Reverse 		bool
 	Duration		uint
 	NoDelay			bool
 	Interval		uint
@@ -175,11 +186,14 @@ type stream_params struct{
 	WriteBufSize	uint
 	FlushInterval	uint
 	NoCong			bool
+	Burst			bool
+	Rate			uint
+	PacingTime		uint
 }
 
 func (p stream_params) String() string{
-	s := fmt.Sprintf("name:%v\tdur:%v\tno_delay:%v\tinterval:%v\tstream_num:%v\t",
-		p.ProtoName, p.Duration, p.NoDelay, p.Interval, p.StreamNum)
+	s := fmt.Sprintf("name:%v\treverse:%v\tdur:%v\tno_delay:%v\tinterval:%v\tstream_num:%v\t",
+		p.ProtoName, p.Reverse, p.Duration, p.NoDelay, p.Interval, p.StreamNum)
 	return s
 }
 
@@ -191,6 +205,10 @@ type iperf_stream_results struct{
 	bytes_sent_omit					uint64
 	stream_retrans 					uint
 	stream_prev_total_retrans		uint
+	stream_lost						uint
+	stream_prev_total_lost			uint
+	stream_fast_resent				uint
+	stream_prev_total_fast_resent	uint
 	stream_max_rtt					uint
 	stream_min_rtt					uint
 	stream_sum_rtt					uint		// micro sec
@@ -226,7 +244,10 @@ type iperf_interval_results struct{
 	interval_start_time				time.Time
 	interval_end_time				time.Time
 	interval_dur					time.Duration
-	rtt 							uint		// micro sec !
+	rtt 							uint		// us
+	rto 							uint		// us
+	interval_lost 					uint
+	interval_fast_resent			uint
 	interval_retrans				uint		// bytes
 	/* for udp */
 	interval_packet_cnt				uint

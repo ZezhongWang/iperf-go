@@ -126,6 +126,10 @@ func (tcp *tcp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_re
 	return 0
 }
 
+func (tcp *tcp_proto) teardown(test *iperf_test) int{
+	return 0
+}
+
 func has_tcpInfo() bool{
 	switch runtime.GOOS {
 	case "windows":
