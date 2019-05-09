@@ -109,6 +109,7 @@ func (test *iperf_test) send_params() int {
 		WriteBufSize: test.setting.write_buf_size,
 		FlushInterval: test.setting.flush_interval,
 		NoCong:		test.setting.no_cong,
+		FastResend: test.setting.fast_resend,
 		Burst:		test.setting.burst,
 		Rate:		test.setting.rate,
 		PacingTime: test.setting.pacing_time,
@@ -164,6 +165,7 @@ func (test *iperf_test) get_params() int {
 	test.setting.read_buf_size = params.ReadBufSize
 	test.setting.flush_interval = params.FlushInterval
 	test.setting.no_cong = params.NoCong
+	test.setting.fast_resend = params.FastResend
 	return 0
 }
 
@@ -319,6 +321,7 @@ func (test *iperf_test)parse_arguments() int {
 	var write_buffer_size_flag = flag.Uint("wb", 4*1024, "write buffer size (Kb)")
 	var flush_interval_flag = flag.Uint("f", 10, "flush interval for rudp (ms)")
 	var no_cong_flag = flag.Bool("nc", true, "no congestion control or BBR")
+	var fast_resend_flag = flag.Uint("fr", 0, "rudp fast resend strategy. 0 indicate turn off fast resend")
 
 	// parse argument
 	flag.Parse()
@@ -409,6 +412,7 @@ func (test *iperf_test)parse_arguments() int {
 	test.setting.write_buf_size = *write_buffer_size_flag * 1024
 	test.setting.flush_interval = *flush_interval_flag
 	test.setting.no_cong = *no_cong_flag
+	test.setting.fast_resend = *fast_resend_flag
 
 	if test.interval > test.duration * 1000{
 		log.Errorf("interval must smaller than duration")
@@ -511,8 +515,8 @@ func (sp *iperf_stream) iperf_recv(test *iperf_test) {
 		if test.state == TEST_RUNNING {
 			test.bytes_received += uint64(n)
 			test.blocks_received += 1
+			log.Debugf("Stream receive data %v bytes of total %v bytes", n, test.bytes_received)
 		}
-		//log.Debugf("Stream receive data %v bytes of total %v bytes", n, test.bytes_received)
 		if test.done {
 			test.ctrl_chan <- TEST_END
 			log.Debugf("Stream quit receiving. test done.")
@@ -627,11 +631,14 @@ func (test *iperf_test)iperf_print_intermediate(){
 			fmt.Printf(TCP_REPORT_SINGLE_STREAM, i, display_start_time, display_end_time,
 				display_bytes_transfer, display_bandwidth, float64(rp.rtt)/1000, rp.interval_retrans, display_retrans_rate)
 		} else {
-			display_retrans_rate := float64(rp.interval_retrans) / (float64(rp.bytes_transfered) / RUDP_MSS) * 100		// to percentage
-			display_lost_rate := float64(rp.interval_lost) / (float64(rp.bytes_transfered) / RUDP_MSS) * 100
-			display_fast_resent_rate := float64(rp.interval_fast_resent) / (float64(rp.bytes_transfered) / RUDP_MSS) * 100
+			total_segs := (float64(rp.bytes_transfered) / RUDP_MSS)
+			display_retrans_rate := float64(rp.interval_retrans) / total_segs * 100		// to percentage
+			display_lost_rate := float64(rp.interval_lost) / total_segs * 100
+			display_early_retrans_rate := float64(rp.interval_early_retrans) / total_segs * 100
+			display_fast_retrans_rate := float64(rp.interval_fast_retrans) / total_segs * 100
 			fmt.Printf(RUDP_REPORT_SINGLE_STREAM, i, display_start_time, display_end_time, display_bytes_transfer,
-				display_bandwidth, float64(rp.rtt)/1000, rp.interval_retrans, display_retrans_rate, display_lost_rate, display_fast_resent_rate)
+				display_bandwidth, float64(rp.rtt)/1000, rp.interval_retrans, display_retrans_rate,
+				display_lost_rate, display_early_retrans_rate, display_fast_retrans_rate)
 		}
 	}
 	if test.stream_num > 1 {
@@ -695,11 +702,14 @@ func (test *iperf_test)iperf_print_results(){
 			fmt.Printf(TCP_REPORT_SINGLE_RESULT, i, display_start_time, display_end_time, display_bytes_transfer,
 				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate, role)
 		} else {
-			display_retrans_rate := float64(sp.result.stream_retrans) / (display_bytes_transfer * MB_TO_B / RUDP_MSS) * 100
-			display_lost_rate := float64(sp.result.stream_lost) / (display_bytes_transfer * MB_TO_B / RUDP_MSS) * 100
-			display_fast_resent_rate := float64(sp.result.stream_fast_resent) / (display_bytes_transfer * MB_TO_B / RUDP_MSS) * 100
+			total_segs := (display_bytes_transfer * MB_TO_B / RUDP_MSS)
+			display_retrans_rate := float64(sp.result.stream_retrans) / total_segs * 100
+			display_lost_rate := float64(sp.result.stream_lost) / total_segs * 100
+			display_early_retrans_rate := float64(sp.result.stream_early_retrans) / total_segs * 100
+			display_fast_retrans_rate := float64(sp.result.stream_fast_retrans) / total_segs * 100
 			fmt.Printf(RUDP_REPORT_SINGLE_RESULT, i, display_start_time, display_end_time, display_bytes_transfer,
-				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate, display_lost_rate, display_fast_resent_rate, role)
+				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate,
+				display_lost_rate, display_early_retrans_rate, display_fast_retrans_rate, role)
 		}
 	}
 	if test.stream_num > 1 {

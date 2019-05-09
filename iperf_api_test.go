@@ -40,8 +40,9 @@ func init(){
 	client_test.set_test_reverse(false)
 
 	//TCPSetting()
+	//RUDPSetting()
+	KCPSetting()
 
-	RUDPSetting()
 	//client_test.setting.burst = true
 	go server_test.run_server()
 	time.Sleep(time.Second)
@@ -63,6 +64,19 @@ func RUDPSetting(){
 	client_test.setting.burst = true
 	client_test.setting.no_cong = false			// false for BBR control
 	client_test.setting.snd_wnd = 10
+	client_test.setting.rcv_wnd = 1024
+	client_test.setting.read_buf_size = DEFAULT_READ_BUF_SIZE
+	client_test.setting.write_buf_size = DEFAULT_WRITE_BUF_SIZE
+	client_test.setting.flush_interval = DEFAULT_FLUSH_INTERVAL
+}
+
+func KCPSetting(){
+	client_test.set_protocol(KCP_NAME)
+	client_test.no_delay = false
+	client_test.setting.blksize = DEFAULT_RUDP_BLKSIZE
+	client_test.setting.burst = true
+	client_test.setting.no_cong = true			// false for BBR control
+	client_test.setting.snd_wnd = 512
 	client_test.setting.rcv_wnd = 1024
 	client_test.setting.read_buf_size = DEFAULT_READ_BUF_SIZE
 	client_test.setting.write_buf_size = DEFAULT_WRITE_BUF_SIZE

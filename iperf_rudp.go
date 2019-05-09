@@ -133,7 +133,7 @@ func (rudp *rudp_proto) init(test *iperf_test) int{
 		} else {
 			nc = 0
 		}
-		resend = 0
+		resend = int(test.setting.fast_resend)
 		sp.conn.(*RUDP.RUDPSession).SetNoDelay(no_delay, int(test.setting.flush_interval), resend, nc)
 	}
 	return 0
@@ -143,7 +143,8 @@ func (rudp *rudp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_
 	rp := sp.result
 	total_retrans := uint(RUDP.DefaultSnmp.RetransSegs)
 	total_lost := uint(RUDP.DefaultSnmp.LostSegs)
-	total_fast_resent := uint(RUDP.DefaultSnmp.FastRetransSegs)
+	total_early_retrans := uint(RUDP.DefaultSnmp.EarlyRetransSegs)
+	total_fast_retrans := uint(RUDP.DefaultSnmp.FastRetransSegs)
 	// retrans
 	temp_result.interval_retrans = total_retrans - rp.stream_prev_total_retrans
 	rp.stream_retrans += temp_result.interval_retrans
@@ -152,10 +153,14 @@ func (rudp *rudp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_
 	temp_result.interval_lost = total_lost - rp.stream_prev_total_lost
 	rp.stream_lost += temp_result.interval_lost
 	rp.stream_prev_total_lost = total_lost
-	// fast_resent
-	temp_result.interval_fast_resent = total_fast_resent - rp.stream_prev_total_fast_resent
-	rp.stream_fast_resent += temp_result.interval_fast_resent
-	rp.stream_prev_total_fast_resent = total_fast_resent
+	// early retrans
+	temp_result.interval_early_retrans = total_early_retrans - rp.stream_prev_total_early_retrans
+	rp.stream_early_retrans += temp_result.interval_early_retrans
+	rp.stream_prev_total_early_retrans = total_early_retrans
+	// fast retrans
+	temp_result.interval_fast_retrans = total_fast_retrans - rp.stream_prev_total_fast_retrans
+	rp.stream_fast_retrans += temp_result.interval_fast_retrans
+	rp.stream_prev_total_fast_retrans = total_fast_retrans
 
 	temp_result.rto = sp.conn.(*RUDP.RUDPSession).GetRTO() * 1000
 	temp_result.rtt = sp.conn.(*RUDP.RUDPSession).GetRTT() * 1000		// ms to micro sec

@@ -58,11 +58,11 @@ const(
 
 const(
 	TCP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT      Retrans   Retrans(%%)\n"
-	RUDP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT      Retrans   Retrans(%%)  Lost(%%)  Fast Retrans\n"
+	RUDP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT      Retrans   Retrans(%%)  Lost(%%)  Early Retrans  Fast Retrans\n"
 	TCP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\n"
-	RUDP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\n"
+	RUDP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\n"
 	TCP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t[%s]\n"
-	RUDP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\t[%s]\n"
+	RUDP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\t[%s]\n"
 	REPORT_SUM_STREAM 	 = "[SUM] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t\n"
 	REPORT_SEPERATOR 	= "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
 	SUMMARY_SEPERATOR 	= "- - - - - - - - - - - - - - - - SUMMARY - - - - - - - - - - - - - - - -\n"
@@ -168,6 +168,7 @@ type iperf_setting struct{
 	write_buf_size	uint		// bit
 	flush_interval	uint		// ms
 	no_cong			bool
+	fast_resend		uint
 }
 
 // params to exchange
@@ -186,6 +187,7 @@ type stream_params struct{
 	WriteBufSize	uint
 	FlushInterval	uint
 	NoCong			bool
+	FastResend		uint
 	Burst			bool
 	Rate			uint
 	PacingTime		uint
@@ -207,8 +209,10 @@ type iperf_stream_results struct{
 	stream_prev_total_retrans		uint
 	stream_lost						uint
 	stream_prev_total_lost			uint
-	stream_fast_resent				uint
-	stream_prev_total_fast_resent	uint
+	stream_early_retrans			uint
+	stream_prev_total_early_retrans	uint
+	stream_fast_retrans				uint
+	stream_prev_total_fast_retrans	uint
 	stream_max_rtt					uint
 	stream_min_rtt					uint
 	stream_sum_rtt					uint		// micro sec
@@ -247,7 +251,8 @@ type iperf_interval_results struct{
 	rtt 							uint		// us
 	rto 							uint		// us
 	interval_lost 					uint
-	interval_fast_resent			uint
+	interval_early_retrans			uint
+	interval_fast_retrans			uint
 	interval_retrans				uint		// bytes
 	/* for udp */
 	interval_packet_cnt				uint

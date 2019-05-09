@@ -136,7 +136,7 @@ func (kcp *kcp_proto) init(test *iperf_test) int{
 		} else {
 			nc = 0
 		}
-		resend = 0
+		resend = int(test.setting.fast_resend)
 		sp.conn.(*KCP.UDPSession).SetNoDelay(no_delay, int(test.setting.flush_interval), resend, nc)
 	}
 	return 0
@@ -145,9 +145,26 @@ func (kcp *kcp_proto) init(test *iperf_test) int{
 func (kcp *kcp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_result *iperf_interval_results) int {
 	rp := sp.result
 	total_retrans := uint(KCP.DefaultSnmp.RetransSegs)
+	total_lost := uint(KCP.DefaultSnmp.LostSegs)
+	total_early_retrans := uint(KCP.DefaultSnmp.EarlyRetransSegs)
+	total_fast_retrans := uint(KCP.DefaultSnmp.FastRetransSegs)
+	// retrans
 	temp_result.interval_retrans = total_retrans - rp.stream_prev_total_retrans
 	rp.stream_retrans += temp_result.interval_retrans
 	rp.stream_prev_total_retrans = total_retrans
+	// lost
+	temp_result.interval_lost = total_lost - rp.stream_prev_total_lost
+	rp.stream_lost += temp_result.interval_lost
+	rp.stream_prev_total_lost = total_lost
+	// early retrans
+	temp_result.interval_early_retrans = total_early_retrans - rp.stream_prev_total_early_retrans
+	rp.stream_early_retrans += temp_result.interval_early_retrans
+	rp.stream_prev_total_early_retrans = total_early_retrans
+	// fast retrans
+	temp_result.interval_fast_retrans = total_fast_retrans - rp.stream_prev_total_fast_retrans
+	rp.stream_fast_retrans += temp_result.interval_fast_retrans
+	rp.stream_prev_total_fast_retrans = total_fast_retrans
+
 	temp_result.rtt = sp.conn.(*KCP.UDPSession).GetRTT() * 1000		// ms to micro sec
 	if rp.stream_min_rtt == 0 || temp_result.rtt < rp.stream_min_rtt {
 		rp.stream_min_rtt = temp_result.rtt
