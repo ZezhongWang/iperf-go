@@ -57,12 +57,14 @@ const(
 )
 
 const(
-	TCP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT      Retrans   Retrans(%%)\n"
-	RUDP_REPORT_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT      Retrans   Retrans(%%)  Lost(%%)  Early Retrans  Fast Retrans\n"
-	TCP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\n"
+	TCP_INTERVAL_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT        Retrans\n"
+	TCP_RESULT_HEADER 		= "[ ID]    Interval        Transfer        Bandwidth        RTT        Retrans   Retrans(%%)\n"
+	RUDP_INTERVAL_HEADER 	= "[ ID]    Interval        Transfer        Bandwidth        RTT        Retrans   Retrans(%%)  Lost(%%)  Early(%%)  Fast(%%)\n"
+	RUDP_RESULT_HEADER 		= "[ ID]    Interval        Transfer        Bandwidth        RTT        Retrans   Retrans(%%)  Lost(%%)  Early(%%)  Fast(%%)  Recover(%%)  PktsLost(%%)  SegsLost(%%)\n"
+	TCP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\n"
 	RUDP_REPORT_SINGLE_STREAM = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\n"
 	TCP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t[%s]\n"
-	RUDP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\t[%s]\n"
+	RUDP_REPORT_SINGLE_RESULT = "[  %v] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\t%2.2f%%\t[%s]\n"
 	REPORT_SUM_STREAM 	 = "[SUM] %4.2f-%4.2f sec\t%5.2f MB\t%5.2f Mb/s\t%6.1fms\t%4v\t\n"
 	REPORT_SEPERATOR 	= "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
 	SUMMARY_SEPERATOR 	= "- - - - - - - - - - - - - - - - SUMMARY - - - - - - - - - - - - - - - -\n"
@@ -167,8 +169,10 @@ type iperf_setting struct{
 	read_buf_size	uint		// bit
 	write_buf_size	uint		// bit
 	flush_interval	uint		// ms
-	no_cong			bool
+	no_cong			bool		// bbr or not?
 	fast_resend		uint
+	data_shards		uint		// for fec
+	parity_shards	uint
 }
 
 // params to exchange
@@ -188,14 +192,16 @@ type stream_params struct{
 	FlushInterval	uint
 	NoCong			bool
 	FastResend		uint
+	DataShards		uint
+	ParityShards	uint
 	Burst			bool
 	Rate			uint
 	PacingTime		uint
 }
 
 func (p stream_params) String() string{
-	s := fmt.Sprintf("name:%v\treverse:%v\tdur:%v\tno_delay:%v\tinterval:%v\tstream_num:%v\t",
-		p.ProtoName, p.Reverse, p.Duration, p.NoDelay, p.Interval, p.StreamNum)
+	s := fmt.Sprintf("name:%v\treverse:%v\tdur:%v\tno_delay:%v\tinterval:%v\tstream_num:%v\tBlkSize:%v\tSndWnd:%v\tRcvWnd:%v\tNoCong:%v\tBurst:%v\tDataShards:%v\tParityShards:%v\t",
+		p.ProtoName, p.Reverse, p.Duration, p.NoDelay, p.Interval, p.StreamNum, p.Blksize, p.SndWnd, p.RcvWnd, p.NoCong, p.Burst, p.DataShards, p.ParityShards)
 	return s
 }
 
@@ -213,6 +219,11 @@ type iperf_stream_results struct{
 	stream_prev_total_early_retrans	uint
 	stream_fast_retrans				uint
 	stream_prev_total_fast_retrans	uint
+	stream_recovers					uint
+	stream_in_segs					uint
+	stream_in_pkts					uint
+	stream_out_segs					uint
+	stream_out_pkts					uint
 	stream_max_rtt					uint
 	stream_min_rtt					uint
 	stream_sum_rtt					uint		// micro sec
@@ -232,14 +243,18 @@ type stream_results_exchange struct{
 	Bytes 		uint64
 	Retrans		uint
 	Jitter 		uint
-	Packets 	uint
+	InPkts		uint
+	OutPkts		uint
+	InSegs		uint
+	OutSegs		uint
+	Recovered 	uint
 	StartTime	time.Time
 	EndTime	time.Time
 }
 
 func (r stream_results_exchange) String() string{
-	s := fmt.Sprintf("id:%v\tbytes:%v\tretrans:%v\tjitter:%v\tpackets:%v\tstart_time:%v\tend_time:%v\t",
-		r.Id, r.Bytes, r.Retrans, r.Jitter, r.Packets, r.StartTime, r.EndTime)
+	s := fmt.Sprintf("id:%v\tbytes:%v\tretrans:%v\tjitter:%v\tInPkts:%v\tOutPkts:%v\tInSegs:%v\tOutSegs:%v\tstart_time:%v\tend_time:%v\t",
+		r.Id, r.Bytes, r.Retrans, r.Jitter, r.InPkts, r.OutPkts, r.InSegs, r.OutSegs, r.StartTime, r.EndTime)
 	return s
 }
 
@@ -253,7 +268,7 @@ type iperf_interval_results struct{
 	interval_lost 					uint
 	interval_early_retrans			uint
 	interval_fast_retrans			uint
-	interval_retrans				uint		// bytes
+	interval_retrans				uint		// segs num
 	/* for udp */
 	interval_packet_cnt				uint
 	omitted							uint

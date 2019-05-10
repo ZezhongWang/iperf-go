@@ -40,8 +40,8 @@ func init(){
 	client_test.set_test_reverse(false)
 
 	//TCPSetting()
-	//RUDPSetting()
-	KCPSetting()
+	RUDPSetting()
+	//KCPSetting()
 
 	//client_test.setting.burst = true
 	go server_test.run_server()
@@ -68,6 +68,8 @@ func RUDPSetting(){
 	client_test.setting.read_buf_size = DEFAULT_READ_BUF_SIZE
 	client_test.setting.write_buf_size = DEFAULT_WRITE_BUF_SIZE
 	client_test.setting.flush_interval = DEFAULT_FLUSH_INTERVAL
+	client_test.setting.data_shards = 3
+	client_test.setting.parity_shards = 1
 }
 
 func KCPSetting(){

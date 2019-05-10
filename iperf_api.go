@@ -110,6 +110,8 @@ func (test *iperf_test) send_params() int {
 		FlushInterval: test.setting.flush_interval,
 		NoCong:		test.setting.no_cong,
 		FastResend: test.setting.fast_resend,
+		DataShards: test.setting.data_shards,
+		ParityShards: test.setting.parity_shards,
 		Burst:		test.setting.burst,
 		Rate:		test.setting.rate,
 		PacingTime: test.setting.pacing_time,
@@ -158,7 +160,7 @@ func (test *iperf_test) get_params() int {
 	test.setting.burst = params.Burst
 	test.setting.rate = params.Rate
 	test.setting.pacing_time = params.PacingTime
-	// rudp only
+	// rudp/kcp only
 	test.setting.snd_wnd = params.SndWnd
 	test.setting.rcv_wnd = params.RcvWnd
 	test.setting.write_buf_size = params.WriteBufSize
@@ -166,6 +168,8 @@ func (test *iperf_test) get_params() int {
 	test.setting.flush_interval = params.FlushInterval
 	test.setting.no_cong = params.NoCong
 	test.setting.fast_resend = params.FastResend
+	test.setting.data_shards = params.DataShards
+	test.setting.parity_shards = params.ParityShards
 	return 0
 }
 
@@ -192,12 +196,17 @@ func (test *iperf_test) send_results() int {
 		} else {
 			bytes_transfer = sp.result.bytes_sent
 		}
+		rp := sp.result
 		sp_result := stream_results_exchange{
 			Id:			uint(i),
 			Bytes:		bytes_transfer,
-			Retrans: 	0,		// current not used
+			Retrans: 	rp.stream_retrans,
 			Jitter:		0, 		// current not used
-			Packets:	0,		// current not used
+			InPkts:		rp.stream_in_pkts,
+			OutPkts: 	rp.stream_out_pkts,
+			InSegs:		rp.stream_in_segs,
+			OutSegs:	rp.stream_out_segs,
+			Recovered:  rp.stream_recovers,
 			StartTime: sp.result.start_time,
 			EndTime:	sp.result.end_time,
 		}
@@ -250,11 +259,14 @@ func (test *iperf_test) get_results() int {
 		if test.mode == IPERF_RECEIVER {
 			sp.result.bytes_sent = result.Bytes
 			sp.result.stream_retrans = result.Retrans
-
+			sp.result.stream_out_segs = result.OutSegs
+			sp.result.stream_out_pkts = result.OutPkts
 		} else {
 			sp.result.bytes_received = result.Bytes
 			//sp.jitter = result.jitter
-			//sp. = result.
+			sp.result.stream_in_segs = result.InSegs
+			sp.result.stream_in_pkts = result.InPkts
+			sp.result.stream_recovers = result.Recovered
 		}
 	}
 	return 0
@@ -322,7 +334,8 @@ func (test *iperf_test)parse_arguments() int {
 	var flush_interval_flag = flag.Uint("f", 10, "flush interval for rudp (ms)")
 	var no_cong_flag = flag.Bool("nc", true, "no congestion control or BBR")
 	var fast_resend_flag = flag.Uint("fr", 0, "rudp fast resend strategy. 0 indicate turn off fast resend")
-
+	var dataShards_flag = flag.Uint("data", 0, "rudp/kcp FEC dataShards option")
+	var parityShards_flag = flag.Uint("parity", 0, "rudp/kcp FEC parityShards option")
 	// parse argument
 	flag.Parse()
 
@@ -413,6 +426,8 @@ func (test *iperf_test)parse_arguments() int {
 	test.setting.flush_interval = *flush_interval_flag
 	test.setting.no_cong = *no_cong_flag
 	test.setting.fast_resend = *fast_resend_flag
+	test.setting.data_shards = *dataShards_flag
+	test.setting.parity_shards = *parityShards_flag
 
 	if test.interval > test.duration * 1000{
 		log.Errorf("interval must smaller than duration")
@@ -482,17 +497,18 @@ func (test *iperf_test) Print() {
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num)
 	} else if test.proto.name() == RUDP_NAME{
 		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n" +
-			"RUDP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\tflushInterval:%v\n",
+			"RUDP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\tflushInterval:%v\tdataShards:%v\tparityShards:%v\n",
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num,
-			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong, test.setting.flush_interval)
+			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong,
+			test.setting.flush_interval, test.setting.data_shards, test.setting.parity_shards)
 	} else if test.proto.name() == KCP_NAME{
 		fmt.Printf("addr:%v\tport:%v\tproto:%v\tinterval:%v\tduration:%v\tNoDelay:%v\tburst:%v\tBlockSize:%v\tStreamNum:%v\n" +
-			"KCP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\tflushInterval:%v\n",
+			"KCP settting: sndWnd:%v\trcvWnd:%v\twriteBufSize:%vKb\treadBufSize:%vKb\tnoCongestion:%v\tflushInterval:%v\tdataShards:%v\tparityShards:%v\n",
 			test.addr, test.port, test.proto.name(), test.interval, test.duration, test.no_delay, test.setting.burst, test.setting.blksize, test.stream_num,
-			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong, test.setting.flush_interval)
+			test.setting.snd_wnd, test.setting.rcv_wnd, test.setting.write_buf_size / 1024, test.setting.read_buf_size / 1024, test.setting.no_cong,
+			test.setting.flush_interval, test.setting.data_shards, test.setting.parity_shards)
 	}
 }
-
 
 
 /*
@@ -603,9 +619,9 @@ func (test *iperf_test)iperf_print_intermediate(){
 		if i == 0 && len(sp.result.interval_results) == 1{
 			// first time to print result, print header
 			if test.proto.name() == TCP_NAME {
-				fmt.Printf(TCP_REPORT_HEADER)
+				fmt.Printf(TCP_INTERVAL_HEADER)
 			} else {
-				fmt.Printf(RUDP_REPORT_HEADER)
+				fmt.Printf(RUDP_INTERVAL_HEADER)
 			}
 		}
 		interval_seq := len(sp.result.interval_results) - 1
@@ -627,11 +643,11 @@ func (test *iperf_test)iperf_print_intermediate(){
 		display_bandwidth := display_bytes_transfer / float64(test.interval) * 1000 * 8	// Mb/s
 		// output single stream interval report
 		if test.proto.name() == TCP_NAME {
-			display_retrans_rate :=  float64(rp.interval_retrans) / (float64(rp.bytes_transfered) / TCP_MSS) * 100
+			//display_retrans_rate :=  float64(rp.interval_retrans) / (float64(rp.bytes_transfered) / TCP_MSS) * 100
 			fmt.Printf(TCP_REPORT_SINGLE_STREAM, i, display_start_time, display_end_time,
-				display_bytes_transfer, display_bandwidth, float64(rp.rtt)/1000, rp.interval_retrans, display_retrans_rate)
+				display_bytes_transfer, display_bandwidth, float64(rp.rtt)/1000, rp.interval_retrans)
 		} else {
-			total_segs := (float64(rp.bytes_transfered) / RUDP_MSS)
+			total_segs := float64(rp.bytes_transfered) / RUDP_MSS + float64(rp.interval_retrans)
 			display_retrans_rate := float64(rp.interval_retrans) / total_segs * 100		// to percentage
 			display_lost_rate := float64(rp.interval_lost) / total_segs * 100
 			display_early_retrans_rate := float64(rp.interval_early_retrans) / total_segs * 100
@@ -662,9 +678,9 @@ func dur_not_same(d time.Duration, d2 time.Duration) bool {
 func (test *iperf_test)iperf_print_results(){
 	fmt.Printf(SUMMARY_SEPERATOR)
 	if test.proto.name() == TCP_NAME {
-		fmt.Printf(TCP_REPORT_HEADER)	
+		fmt.Printf(TCP_RESULT_HEADER)
 	} else {
-		fmt.Printf(RUDP_REPORT_HEADER)
+		fmt.Printf(RUDP_RESULT_HEADER)
 	}
 	
 	if len(test.streams) <=0 {
@@ -698,18 +714,26 @@ func (test *iperf_test)iperf_print_results(){
 		}
 		// output single stream final report
 		if test.proto.name() == TCP_NAME {
-			display_retrans_rate := float64(sp.result.stream_retrans) / (display_bytes_transfer * MB_TO_B / TCP_MSS)
+			total_segs := (display_bytes_transfer * MB_TO_B / TCP_MSS) + float64(sp.result.stream_retrans)
+			display_retrans_rate := float64(sp.result.stream_retrans) / total_segs
 			fmt.Printf(TCP_REPORT_SINGLE_RESULT, i, display_start_time, display_end_time, display_bytes_transfer,
 				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate, role)
 		} else {
-			total_segs := (display_bytes_transfer * MB_TO_B / RUDP_MSS)
+			total_segs := float64(sp.result.stream_out_segs)
 			display_retrans_rate := float64(sp.result.stream_retrans) / total_segs * 100
 			display_lost_rate := float64(sp.result.stream_lost) / total_segs * 100
 			display_early_retrans_rate := float64(sp.result.stream_early_retrans) / total_segs * 100
 			display_fast_retrans_rate := float64(sp.result.stream_fast_retrans) / total_segs * 100
+
+			recover_rate := float64(sp.result.stream_recovers) / total_segs * 100
+			pkts_lost_rate := (1 - float64(sp.result.stream_in_pkts) / float64(sp.result.stream_out_pkts)) * 100
+			segs_lost_rate := (1 - float64(sp.result.stream_in_segs) / float64(sp.result.stream_out_segs)) * 100
 			fmt.Printf(RUDP_REPORT_SINGLE_RESULT, i, display_start_time, display_end_time, display_bytes_transfer,
 				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate,
-				display_lost_rate, display_early_retrans_rate, display_fast_retrans_rate, role)
+				display_lost_rate, display_early_retrans_rate, display_fast_retrans_rate,
+				recover_rate, pkts_lost_rate, segs_lost_rate, role)
+			fmt.Printf("total_segs = %v, out_segs = %v, in_segs = %v, out_pkts = %v, in_pkts = %v, recovery = %v\n",
+				total_segs, sp.result.stream_out_segs, sp.result.stream_in_segs, sp.result.stream_out_pkts, sp.result.stream_in_pkts, sp.result.stream_recovers)
 		}
 	}
 	if test.stream_num > 1 {

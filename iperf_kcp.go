@@ -35,7 +35,7 @@ func (kcp *kcp_proto) accept(test *iperf_test) (net.Conn, error){
 }
 
 func (kcp *kcp_proto) listen(test *iperf_test) (net.Listener, error){
-	listener, err := KCP.ListenWithOptions(":" + strconv.Itoa(int(test.port)), nil, 0, 0)
+	listener, err := KCP.ListenWithOptions(":" + strconv.Itoa(int(test.port)), nil, int(test.setting.data_shards), int(test.setting.parity_shards))
 	listener.SetReadBuffer(int(test.setting.read_buf_size))			// all income conn share the same underline packet conn, the buffer should be large
 	listener.SetWriteBuffer(int(test.setting.write_buf_size))
 
@@ -46,7 +46,7 @@ func (kcp *kcp_proto) listen(test *iperf_test) (net.Listener, error){
 }
 
 func (kcp *kcp_proto) connect(test *iperf_test) (net.Conn, error){
-	conn, err := KCP.DialWithOptions(test.addr + ":" + strconv.Itoa(int(test.port)), nil, 0, 0)
+	conn, err := KCP.DialWithOptions(test.addr + ":" + strconv.Itoa(int(test.port)), nil, int(test.setting.data_shards), int(test.setting.parity_shards))
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +148,11 @@ func (kcp *kcp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_re
 	total_lost := uint(KCP.DefaultSnmp.LostSegs)
 	total_early_retrans := uint(KCP.DefaultSnmp.EarlyRetransSegs)
 	total_fast_retrans := uint(KCP.DefaultSnmp.FastRetransSegs)
+	total_recovers := uint(KCP.DefaultSnmp.FECRecovered)
+	total_in_pkts := uint(KCP.DefaultSnmp.InPkts)
+	total_in_segs := uint(KCP.DefaultSnmp.InSegs)
+	total_out_pkts := uint(KCP.DefaultSnmp.OutPkts)
+	total_out_segs := uint(KCP.DefaultSnmp.OutSegs)
 	// retrans
 	temp_result.interval_retrans = total_retrans - rp.stream_prev_total_retrans
 	rp.stream_retrans += temp_result.interval_retrans
@@ -164,6 +169,14 @@ func (kcp *kcp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_re
 	temp_result.interval_fast_retrans = total_fast_retrans - rp.stream_prev_total_fast_retrans
 	rp.stream_fast_retrans += temp_result.interval_fast_retrans
 	rp.stream_prev_total_fast_retrans = total_fast_retrans
+	// recover
+	rp.stream_recovers = total_recovers
+	// packets receive
+	rp.stream_in_pkts = total_in_pkts
+	rp.stream_out_pkts = total_out_pkts
+	// segs receive
+	rp.stream_in_segs = total_in_segs
+	rp.stream_out_segs = total_out_segs
 
 	temp_result.rtt = sp.conn.(*KCP.UDPSession).GetRTT() * 1000		// ms to micro sec
 	if rp.stream_min_rtt == 0 || temp_result.rtt < rp.stream_min_rtt {

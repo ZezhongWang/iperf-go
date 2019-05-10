@@ -36,7 +36,7 @@ func (rudp *rudp_proto) accept(test *iperf_test) (net.Conn, error){
 }
 
 func (rudp *rudp_proto) listen(test *iperf_test) (net.Listener, error){
-	listener, err := RUDP.ListenWithOptions(":" + strconv.Itoa(int(test.port)))
+	listener, err := RUDP.ListenWithOptions(":" + strconv.Itoa(int(test.port)), int(test.setting.data_shards), int(test.setting.parity_shards))
 	listener.SetReadBuffer(int(test.setting.read_buf_size))			// all income conn share the same underline packet conn, the buffer should be large
 	listener.SetWriteBuffer(int(test.setting.write_buf_size))
 
@@ -47,7 +47,7 @@ func (rudp *rudp_proto) listen(test *iperf_test) (net.Listener, error){
 }
 
 func (rudp *rudp_proto) connect(test *iperf_test) (net.Conn, error){
-	conn, err := RUDP.ConnectRUDP(test.addr + ":" + strconv.Itoa(int(test.port)))
+	conn, err := RUDP.ConnectRUDP(test.addr + ":" + strconv.Itoa(int(test.port)), int(test.setting.data_shards), int(test.setting.parity_shards))
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +145,11 @@ func (rudp *rudp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_
 	total_lost := uint(RUDP.DefaultSnmp.LostSegs)
 	total_early_retrans := uint(RUDP.DefaultSnmp.EarlyRetransSegs)
 	total_fast_retrans := uint(RUDP.DefaultSnmp.FastRetransSegs)
+	total_recovers := uint(RUDP.DefaultSnmp.FECRecovered)
+	total_in_pkts := uint(RUDP.DefaultSnmp.InPkts)
+	total_in_segs := uint(RUDP.DefaultSnmp.InSegs)
+	total_out_pkts := uint(RUDP.DefaultSnmp.OutPkts)
+	total_out_segs := uint(RUDP.DefaultSnmp.OutSegs)
 	// retrans
 	temp_result.interval_retrans = total_retrans - rp.stream_prev_total_retrans
 	rp.stream_retrans += temp_result.interval_retrans
@@ -161,6 +166,14 @@ func (rudp *rudp_proto) stats_callback(test *iperf_test, sp *iperf_stream, temp_
 	temp_result.interval_fast_retrans = total_fast_retrans - rp.stream_prev_total_fast_retrans
 	rp.stream_fast_retrans += temp_result.interval_fast_retrans
 	rp.stream_prev_total_fast_retrans = total_fast_retrans
+	// recover
+	rp.stream_recovers = total_recovers
+	// packets receive
+	rp.stream_in_pkts = total_in_pkts
+	rp.stream_out_pkts = total_out_pkts
+	// segs receive
+	rp.stream_in_segs = total_in_segs
+	rp.stream_out_segs = total_out_segs
 
 	temp_result.rto = sp.conn.(*RUDP.RUDPSession).GetRTO() * 1000
 	temp_result.rtt = sp.conn.(*RUDP.RUDPSession).GetRTT() * 1000		// ms to micro sec
