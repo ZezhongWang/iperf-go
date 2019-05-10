@@ -8,6 +8,7 @@ import (
 	"github.com/op/go-logging"
 	"net"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -322,7 +323,7 @@ func (test *iperf_test)parse_arguments() int {
 	var interval_flag = flag.Uint("i", 1000, "test interval (ms)")
 	var parallel_flag = flag.Uint("P", 1, "The number of simultaneous connections")
 	var blksize_flag = flag.Uint("l", 4*1024, "send/read block size")
-	var bandwidth_flag = flag.Uint("b", 0, "bandwidth limit. (Mb/s)")
+	var bandwidth_flag = flag.String("b", "0", "bandwidth limit. (M/K), default MB/s")
 	var debug_flag = flag.Bool("debug", false, "debug mode")
 	var info_flag = flag.Bool("info", false, "info mode")
 	var no_delay_flag = flag.Bool("D", false, "no delay option")
@@ -386,7 +387,26 @@ func (test *iperf_test)parse_arguments() int {
 		test.setting.burst = true
 	} else {
 		test.setting.burst = false
-		test.setting.rate = *bandwidth_flag * MB_TO_B * 8
+		bw_str := *bandwidth_flag
+		if string(bw_str[len(bw_str)-1]) == "M" {
+			if n, err := strconv.Atoi(string(bw_str[:len(bw_str)-1])); err == nil{
+				test.setting.rate = uint(n * MB_TO_B * 8)
+			} else {
+				log.Errorf("Error bandwidth flag")
+			}
+		} else if string(bw_str[len(bw_str)-1]) == "K" {
+			if n, err := strconv.Atoi(string(bw_str[:len(bw_str)-1])); err == nil{
+				test.setting.rate = uint(n * KB_TO_B * 8)
+			} else {
+				log.Errorf("Error bandwidth flag")
+			}
+		} else {
+			if n, err := strconv.Atoi(bw_str); err == nil{
+				test.setting.rate = uint(n * MB_TO_B * 8)
+			} else {
+				log.Errorf("Error bandwidth flag")
+			}
+		}
 		test.setting.pacing_time = 5		// 5ms pacing
 	}
 

@@ -53,6 +53,7 @@ const(
 	MS_TO_NS 				= 1000000
 	S_TO_NS					= 1000000000
 	MB_TO_B					= 1024*1024
+	KB_TO_B					= 1024
 	ACCEPT_SIGNAL 			= 1
 )
 
