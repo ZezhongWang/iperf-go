@@ -735,7 +735,7 @@ func (test *iperf_test)iperf_print_results(){
 		// output single stream final report
 		if test.proto.name() == TCP_NAME {
 			total_segs := (display_bytes_transfer * MB_TO_B / TCP_MSS) + float64(sp.result.stream_retrans)
-			display_retrans_rate := float64(sp.result.stream_retrans) / total_segs
+			display_retrans_rate := float64(sp.result.stream_retrans) / total_segs * 100
 			fmt.Printf(TCP_REPORT_SINGLE_RESULT, i, display_start_time, display_end_time, display_bytes_transfer,
 				display_bandwidth, display_rtt, sp.result.stream_retrans, display_retrans_rate, role)
 		} else {
