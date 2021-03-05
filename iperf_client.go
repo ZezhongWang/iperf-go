@@ -235,12 +235,12 @@ func (test *iperf_test) run_client() int{
 				log.Infof("Client all Stream closed.")
 				// test_end_num == test.stream_num. all the stream send TEST_END signal
 				test.done = true
-				if test.stats_callback != nil {
-					test.stats_callback(test)
-				}
 				if test.set_send_state(TEST_END) < 0 {
 					log.Errorf("set_send_state failed. %v", TEST_END)
 					return -1
+				}
+				if test.stats_callback != nil {
+					test.stats_callback(test)
 				}
 				log.Info("Client Enter Test End State.")
 			} else if state == IPERF_DONE {
