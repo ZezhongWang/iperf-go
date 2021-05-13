@@ -1,5 +1,8 @@
 # iperf-go
 
+Due to the high learning cost of the existing relatively complete network testing tools such as NS2 (network simulator), and the poor support for non-C / C + + written network protocols. The lightweight network test level tools, such as iperf3, do not give enough consideration to the horizontal expansion of supporting protocols. Now the latest version can only support TCP, UDP and STCP. However, there are hundreds of protocols in the application layer, and some developers have the need to test custom protocols. So iperf go is such a tool **by implementing a very simple interface, it can measure the network speed of user-defined protocols**.
+
+The implementation refers to the C source code of iperf3 and is implemented in go language.
 由于现有的较为完备的网络测试工具如 NS2 (Network Simulator) 学习成本较高，而且对于非 c/c++ 写的网络协议支持性不好。 而轻量级网络测试级工具例如 iperf3，本身架构上对支持协议的横向扩展考虑得不够到位，现在最新版也只能支持 TCP，UDP，STCP 三种协议，然而实际上应用层有上百种协议，并且部分开发者有测试自定义协议的需求。 所以 iperf-go 就是这样一个工具，**通过实现极为简单的接口，就能够对自定义协议进行网络测速**。
 
 实现参考了iperf3的C的源码，用Go语言实现。
